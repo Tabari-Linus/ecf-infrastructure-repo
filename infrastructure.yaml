@@ -352,8 +352,10 @@ Resources:
       GenerateSecretString:
         SecretStringTemplate: !Sub |
           {
-            "username": "${DatabaseConfig.Settings.DBUsername}"
+            "username": "${DBUsername}"
           }
+        Parameters:
+          DBUsername: !FindInMap [DatabaseConfig, Settings, DBUsername]
         GenerateStringKey: 'password'
         PasswordLength: 32
         ExcludeCharacters: '"@/\'

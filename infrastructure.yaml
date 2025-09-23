@@ -571,6 +571,8 @@ Resources:
                   - !GetAtt PhotoS3Bucket.Arn
                   - !Sub '${PhotoS3Bucket.Arn}/*'
                   
+  # ... (rest of the template is unchanged)
+
   TaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
@@ -595,7 +597,9 @@ Resources:
             - Name: STUDENT_NAME
               Value: !Ref StudentName
             - Name: DB_URL
-              Value: !Sub 'jdbc:postgresql://${PostgreSQLDatabase.Endpoint.Address}:${PostgreSQLDatabase.Endpoint.Port}/${DatabaseConfig.Settings.DBName}'
+              Value: !Sub 'jdbc:postgresql://${PostgreSQLDatabase.Endpoint.Address}:${PostgreSQLDatabase.Endpoint.Port}/${DBName}'
+            - Name: DB_NAME
+              Value: !FindInMap [DatabaseConfig, Settings, DBName]
           Secrets:
             - Name: DB_USERNAME
               ValueFrom: !Sub '${DBPasswordSecret}:username::'
@@ -607,6 +611,8 @@ Resources:
               awslogs-group: !Ref LogGroup
               awslogs-region: !Ref 'AWS::Region'
               awslogs-stream-prefix: ecs
+
+# ... (rest of the template is unchanged)
               
   ECSService:
     Type: AWS::ECS::Service

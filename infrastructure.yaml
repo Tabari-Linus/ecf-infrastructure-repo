@@ -55,18 +55,14 @@ Resources:
       EnableDnsSupport: true
       Tags:
         - Key: Name
-          Value: !sub
-            - '${ProjectName}-vpc'
-            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+          Value: !Sub '${ProjectName}-vpc'
           
   InternetGateway:
     Type: AWS::EC2::InternetGateway
     Properties:
       Tags:
         - Key: Name
-          Value: !Sub
-            - '${ProjectName}-igw'
-            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+          Value: !Sub '${ProjectName}-igw'
           
   AttachGateway:
     Type: AWS::EC2::VPCGatewayAttachment
@@ -84,9 +80,7 @@ Resources:
       MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
-          Value: !sub
-            - '${ProjectName}-public-subnet-a'
-            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+          Value: !Sub '${ProjectName}-public-subnet-a'
           
   PublicSubnetB:
     Type: AWS::EC2::Subnet
@@ -97,9 +91,7 @@ Resources:
       MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
-          Value: !sub
-            - '${ProjectName}-public-subnet-b'
-            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+          Value: !Sub '${ProjectName}-public-subnet-b'
           
   # Private Subnets
   PrivateSubnetA:
@@ -110,9 +102,7 @@ Resources:
       AvailabilityZone: !Select [0, !GetAZs '']
       Tags:
         - Key: Name
-          Value: !Sub 
-            - '${ProjectName}-private-subnet-a'
-            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+          Value: !Sub '${ProjectName}-private-subnet-a'
           
   PrivateSubnetB:
     Type: AWS::EC2::Subnet
@@ -122,9 +112,7 @@ Resources:
       AvailabilityZone: !Select [1, !GetAZs '']
       Tags:
         - Key: Name
-          Value: !Sub 
-            - '${ProjectName}-private-subnet-b'
-            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+          Value: !Sub '${ProjectName}-private-subnet-b'
           
   # Database Subnets
   DatabaseSubnetA:
@@ -135,9 +123,7 @@ Resources:
       AvailabilityZone: !Select [0, !GetAZs '']
       Tags:
         - Key: Name
-          Value: !Sub 
-            - '${ProjectName}-database-subnet-a'
-            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+          Value: !Sub '${ProjectName}-database-subnet-a'
           
   DatabaseSubnetB:
     Type: AWS::EC2::Subnet
@@ -147,9 +133,7 @@ Resources:
       AvailabilityZone: !Select [1, !GetAZs '']
       Tags:
         - Key: Name
-          Value: !Sub 
-            - '${ProjectName}-database-subnet-b'
-            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+          Value: !Sub '${ProjectName}-database-subnet-b'
           
   # Route Tables
   PublicRouteTable:
@@ -158,9 +142,7 @@ Resources:
       VpcId: !Ref VPC
       Tags:
         - Key: Name
-          Value: !Sub 
-            - '${ProjectName}-public-routes'
-            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+          Value: !Sub '${ProjectName}-public-routes'
           
   PublicRoute:
     Type: AWS::EC2::Route
@@ -188,9 +170,7 @@ Resources:
       VpcId: !Ref VPC
       Tags:
         - Key: Name
-          Value: !Sub 
-            - '${ProjectName}-private-routes-a'
-            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+          Value: !Sub '${ProjectName}-private-routes-a'
           
   PrivateRouteTableB:
     Type: AWS::EC2::RouteTable
@@ -198,9 +178,7 @@ Resources:
       VpcId: !Ref VPC
       Tags:
         - Key: Name
-          Value: !Sub 
-            - '${ProjectName}-private-routes-b'
-            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+          Value: !Sub '${ProjectName}-private-routes-b'
           
   PrivateSubnetARouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -287,9 +265,7 @@ Resources:
   ALBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: !Sub
-        - '${ProjectName}-alb-sg'
-        - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      GroupName: !Sub '${ProjectName}-alb-sg'
       GroupDescription: Security group for Application Load Balancer
       VpcId: !Ref VPC
       SecurityGroupIngress:
@@ -303,16 +279,12 @@ Resources:
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
-          VaValue: !Sub
-            - '${ProjectName}-alb-sg'
-            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+          Value: !Sub '${ProjectName}-alb-sg'
           
   ECSTaskSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: !Sub
-        - '${ProjectName}-ecs-task-sg'
-        - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      GroupName: !Sub '${ProjectName}-ecs-task-sg'
       GroupDescription: Security group for ECS Fargate tasks
       VpcId: !Ref VPC
       SecurityGroupIngress:
@@ -322,16 +294,12 @@ Resources:
           SourceSecurityGroupId: !Ref ALBSecurityGroup
       Tags:
         - Key: Name
-          Value: !Sub
-            - '${ProjectName}-ecs-task-sg'
-            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+          Value: !Sub '${ProjectName}-ecs-task-sg'
           
   DatabaseSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: !Sub
-        - '${ProjectName}-database-sg'
-        - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      GroupName: !Sub '${ProjectName}-database-sg'
       GroupDescription: Security group for RDS PostgreSQL
       VpcId: !Ref VPC
       SecurityGroupIngress:
@@ -341,16 +309,12 @@ Resources:
           SourceSecurityGroupId: !Ref ECSTaskSecurityGroup
       Tags:
         - Key: Name
-          Value: !Sub
-            - '${ProjectName}-database-sg'
-            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+          Value: !Sub '${ProjectName}-database-sg'
           
   VPCEndpointSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: !Sub
-        - '${ProjectName}-vpce-sg'
-        - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      GroupName: !Sub '${ProjectName}-vpce-sg'
       GroupDescription: Security group for VPC endpoints
       VpcId: !Ref VPC
       SecurityGroupIngress:
@@ -360,9 +324,7 @@ Resources:
           SourceSecurityGroupId: !Ref ECSTaskSecurityGroup
       Tags:
         - Key: Name
-          Value: !Sub
-            - '${ProjectName}-vpce-sg'
-            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+          Value: !Sub '${ProjectName}-vpce-sg'
           
   # ==========================================
   # STORAGE RESOURCES (S3 & RDS)
@@ -372,9 +334,7 @@ Resources:
   DBPasswordSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
-      Name: !Sub
-        -  '/${ProjectName}/rds/master-password'
-        - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      Name: !Sub '/${ProjectName}/rds/master-password'
       Description: Auto-generated RDS master password
       GenerateSecretString:
         SecretStringTemplate: !Sub |
@@ -389,9 +349,7 @@ Resources:
   PhotoS3Bucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub 
-        - '${ProjectName}-photos-${AWS::AccountId}-${AWS::Region}'
-        - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      BucketName: !Sub '${ProjectName}-photos-${AWS::AccountId}-${AWS::Region}'
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
@@ -421,33 +379,25 @@ Resources:
             MaxAge: 3000
       Tags:
         - Key: Name
-          Value: !Sub 
-            - '${ProjectName}-photos-bucket'
-            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+          Value: !Sub '${ProjectName}-photos-bucket'
           
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
-      DBSubnetGroupName: !Sub
-        - '${ProjectName}-db-subnet-group'
-        - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      DBSubnetGroupName: !Sub '${ProjectName}-db-subnet-group'
       DBSubnetGroupDescription: Subnet group for RDS PostgreSQL
       SubnetIds:
         - !Ref DatabaseSubnetA
         - !Ref DatabaseSubnetB
       Tags:
         - Key: Name
-          Value: !Sub
-            - '${ProjectName}-db-subnet-group'
-            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+          Value: !Sub '${ProjectName}-db-subnet-group'
           
   PostgreSQLDatabase:
     Type: AWS::RDS::DBInstance
     DeletionPolicy: Snapshot
     Properties:
-      DBInstanceIdentifier: !Sub 
-        - '${ProjectName}-postgres-db'
-        - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      DBInstanceIdentifier: !Sub '${ProjectName}-postgres-db'
       DBName: !FindInMap [DatabaseConfig, Settings, DBName]
       Engine: !FindInMap [DatabaseConfig, Settings, Engine]
       EngineVersion: !FindInMap [DatabaseConfig, Settings, EngineVersion]
@@ -468,9 +418,7 @@ Resources:
       PerformanceInsightsRetentionPeriod: 7
       Tags:
         - Key: Name
-          Value: !Sub
-            - '${ProjectName}-postgres-db'
-            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+          Value: !Sub '${ProjectName}-postgres-db'
           
   # ==========================================
   # ECS RESOURCES
@@ -500,17 +448,13 @@ Resources:
   LogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub 
-        - '/ecs/${ProjectName}'
-        - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      LogGroupName: !Sub '/ecs/${ProjectName}'
       RetentionInDays: 30
       
   ApplicationLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      Name: !Sub
-        - '${ProjectName}-alb'
-        - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      Name: !Sub '${ProjectName}-alb'
       Type: application
       Scheme: internet-facing
       Subnets:
@@ -520,16 +464,12 @@ Resources:
         - !Ref ALBSecurityGroup
       Tags:
         - Key: Name
-          Value: !Sub
-            - '${ProjectName}-alb'
-            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+          Value: !Sub '${ProjectName}-alb'
           
   TargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Sub
-        - '${ProjectName}-tg'
-        - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      Name: !Sub '${ProjectName}-tg'
       Port: !FindInMap [ProjectConfig, Settings, ContainerPort]
       Protocol: HTTP
       TargetType: ip
@@ -557,9 +497,7 @@ Resources:
   ECSCluster:
     Type: AWS::ECS::Cluster
     Properties:
-      ClusterName: !Sub
-        - '${ProjectName}-ecs-cluster'
-        - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      ClusterName: !Sub '${ProjectName}-cluster'
       ClusterSettings:
         - Name: containerInsights
           Value: enabled
@@ -621,9 +559,7 @@ Resources:
   TaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
-      Family: !Sub
-        - '${ProjectName}-task'
-        - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      Family: !Sub '${ProjectName}-task'
       NetworkMode: awsvpc
       RequiresCompatibilities:
         - FARGATE
@@ -661,9 +597,7 @@ Resources:
     Type: AWS::ECS::Service
     DependsOn: ALBListener
     Properties:
-      ServiceName: !Sub
-        - '${ProjectName}-service'
-        - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      ServiceName: !Sub '${ProjectName}-service'
       Cluster: !Ref ECSCluster
       TaskDefinition: !Ref TaskDefinition
       DesiredCount: !FindInMap [ProjectConfig, Settings, DesiredCount]
@@ -705,9 +639,7 @@ Resources:
   GitHubActionsRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub
-        - '${ProjectName}-github-actions-role'
-        - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      RoleName: !Sub '${ProjectName}-github-actions-role'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -726,9 +658,7 @@ Resources:
   ArtifactsBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub
-        - '${ProjectName}-artifacts-${AWS::AccountId}-${AWS::Region}'
-        - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      BucketName: !Sub '${ProjectName}-artifacts-${AWS::AccountId}-${AWS::Region}'
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
@@ -749,9 +679,7 @@ Resources:
   ECRPushEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub
-        - '${ProjectName}-ecr-push-rule'
-        - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      Name: !Sub '${ProjectName}-ecr-push-rule'
       Description: 'Trigger CodePipeline on ECR push'
       EventPattern:
         source:
@@ -793,17 +721,13 @@ Resources:
   CodeDeployApplication:
     Type: AWS::CodeDeploy::Application
     Properties:
-      ApplicationName: !Sub
-        - '${ProjectName}-codedeploy-app'
-        - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      ApplicationName: !Sub '${ProjectName}-app'
       ComputePlatform: ECS
       
   GreenTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Sub
-        - '${ProjectName}-green-tg'
-        - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      Name: !Sub '${ProjectName}-tg-green'
       Port: !FindInMap [ProjectConfig, Settings, ContainerPort]
       Protocol: HTTP
       TargetType: ip
@@ -822,9 +746,7 @@ Resources:
     Type: AWS::CodeDeploy::DeploymentGroup
     Properties:
       ApplicationName: !Ref CodeDeployApplication
-      DeploymentGroupName: !Sub
-        - '${ProjectName}-deployment-group'
-        - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      DeploymentGroupName: !Sub '${ProjectName}-deployment-group'
       ServiceRoleArn: !GetAtt CodeDeployRole.Arn
       DeploymentConfigName: CodeDeployDefault.ECSAllAtOnceBlueGreen
       BlueGreenDeploymentConfiguration:
@@ -863,9 +785,7 @@ Resources:
   CodePipeline:
     Type: AWS::CodePipeline::Pipeline
     Properties:
-      Name: !Sub
-        - '${ProjectName}-pipeline'
-        - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      Name: !Sub '${ProjectName}-pipeline'
       RoleArn: !GetAtt CodePipelineRole.Arn
       ArtifactStore:
         Type: S3

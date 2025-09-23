@@ -597,9 +597,7 @@ Resources:
             - Name: STUDENT_NAME
               Value: !Ref StudentName
             - Name: DB_URL
-              Value: !Sub 'jdbc:postgresql://${PostgreSQLDatabase.Endpoint.Address}:${PostgreSQLDatabase.Endpoint.Port}/${DatabaseName}'
-            - Name: DB_NAME
-              Value: !FindInMap [DatabaseConfig, Settings, DBName]
+              Value: !Sub 'jdbc:postgresql://${PostgreSQLDatabase.Endpoint.Address}:${PostgreSQLDatabase.Endpoint.Port}/${!FindInMap [DatabaseConfig, Settings, DBName]}'
           Secrets:
             - Name: DB_USERNAME
               ValueFrom: !Sub '{{resolve:secretsmanager:${DBPasswordSecret}:SecretString:username}}'

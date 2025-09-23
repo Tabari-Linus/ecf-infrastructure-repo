@@ -344,18 +344,19 @@ Resources:
   # ==========================================
   
   # Auto-generate secure password
+  # Auto-generate secure password
   DBPasswordSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
       Name: !Sub '/${ProjectName}/rds/master-password'
       Description: Auto-generated RDS master password
       GenerateSecretString:
-        SecretStringTemplate: !Sub |
+        SecretStringTemplate: |
           {
-            "username": "${DBUsername}"
+            "username": "{{username}}"
           }
         Parameters:
-          DBUsername: !FindInMap [DatabaseConfig, Settings, DBUsername]
+          username: !FindInMap [DatabaseConfig, Settings, DBUsername]
         GenerateStringKey: 'password'
         PasswordLength: 32
         ExcludeCharacters: '"@/\'

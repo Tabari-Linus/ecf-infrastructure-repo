@@ -416,8 +416,10 @@ Resources:
       AllocatedStorage: !FindInMap [DatabaseConfig, Settings, AllocatedStorage]
       StorageType: gp3
       StorageEncrypted: true
-      MasterUsername: !Sub '{{resolve:secretsmanager:${DBPasswordSecret}:SecretString:username}}'
-      MasterUserPassword: !Sub '{{resolve:secretsmanager:${DBPasswordSecret}:SecretString:password}}'
+      # Corrected line: Reference the mapping directly for validation
+      MasterUsername: !FindInMap [DatabaseConfig, Settings, DBUsername] 
+      # Updated line: The password still needs to be resolved from Secrets Manager
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${DBPasswordSecret}:SecretString:password}}' 
       VPCSecurityGroups:
         - !Ref DatabaseSecurityGroup
       DBSubnetGroupName: !Ref DBSubnetGroup

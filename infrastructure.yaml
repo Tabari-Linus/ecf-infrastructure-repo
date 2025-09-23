@@ -51,7 +51,7 @@ Mappings:
       DBName: 'photodb'
       DBUsername: 'photodbadmin'
       Engine: 'postgres'
-      EngineVersion: '15.4'
+      EngineVersion: '16.2'
       InstanceClass: 'db.t3.micro'
       AllocatedStorage: 20
 

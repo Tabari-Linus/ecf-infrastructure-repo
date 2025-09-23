@@ -597,14 +597,14 @@ Resources:
             - Name: STUDENT_NAME
               Value: !Ref StudentName
             - Name: DB_URL
-              Value: !Sub 'jdbc:postgresql://${PostgreSQLDatabase.Endpoint.Address}:${PostgreSQLDatabase.Endpoint.Port}/${DBName}'
+              Value: !Sub 'jdbc:postgresql://${PostgreSQLDatabase.Endpoint.Address}:${PostgreSQLDatabase.Endpoint.Port}/${DatabaseName}'
             - Name: DB_NAME
               Value: !FindInMap [DatabaseConfig, Settings, DBName]
           Secrets:
             - Name: DB_USERNAME
-              ValueFrom: !Sub '${DBPasswordSecret}:username::'
+              ValueFrom: !Sub '{{resolve:secretsmanager:${DBPasswordSecret}:SecretString:username}}'
             - Name: DB_PASSWORD
-              ValueFrom: !Sub '${DBPasswordSecret}:password::'
+              ValueFrom: !Sub '{{resolve:secretsmanager:${DBPasswordSecret}:SecretString:password}}'
           LogConfiguration:
             LogDriver: awslogs
             Options:

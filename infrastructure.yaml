@@ -598,9 +598,9 @@ Resources:
               Value: !Sub 'jdbc:postgresql://${PostgreSQLDatabase.Endpoint.Address}:${PostgreSQLDatabase.Endpoint.Port}/${!FindInMap [DatabaseConfig, Settings, DBName]}'
           Secrets:
             - Name: DB_USERNAME
-              ValueFrom: !Sub '{{resolve:secretsmanager:${DBPasswordSecret}:SecretString:username}}'
+              ValueFrom: !Sub '${DBPasswordSecret}:username'
             - Name: DB_PASSWORD
-              ValueFrom: !Sub '{{resolve:secretsmanager:${DBPasswordSecret}:SecretString:password}}'
+              ValueFrom: !Sub '${DBPasswordSecret}:password'
           LogConfiguration:
             LogDriver: awslogs
             Options:

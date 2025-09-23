@@ -411,11 +411,11 @@ Resources:
     DeletionPolicy: Snapshot
     Properties:
       DBInstanceIdentifier: !Sub '${ProjectName}-postgres-db'
-      DBName: !FindInMap [DatabaseConfig, Settings, DBName]
-      Engine: !FindInMap [DatabaseConfig, Settings, Engine]
-      EngineVersion: !FindInMap [DatabaseConfig, Settings, EngineVersion]
-      DBInstanceClass: !FindInMap [DatabaseConfig, Settings, InstanceClass]
-      AllocatedStorage: !FindInMap [DatabaseConfig, Settings, AllocatedStorage]
+      DBName: !Sub '${DatabaseConfig.Settings.DBName}'
+      Engine: !Sub ${DatabaseConfig.Settings.Engine}
+      EngineVersion: !Sub ${DatabaseConfig.Settings.EngineVersion}
+      DBInstanceClass: !Sub ${DatabaseConfig.Settings.InstanceClass}
+      AllocatedStorage: !Sub ${DatabaseConfig.Settings.AllocatedStorage}
       StorageType: gp3
       StorageEncrypted: true
       MasterUsername: !Sub '{{resolve:secretsmanager:${DBPasswordSecret}:SecretString:username}}'

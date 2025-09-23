@@ -12,6 +12,7 @@ Mappings:
       GitHubAppRepo: 'photo-upload-app'
       GitHubInfraRepo: 'ecf-infrastructure-repo'
 
+
 Resources:
   # ==========================================
   # Stack 1: Main Infrastructure (VPC, Networking)

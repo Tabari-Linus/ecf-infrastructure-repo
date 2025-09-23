@@ -1,0 +1,152 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Master stack for Photo Upload Application - Automatically deployed via GitSync'
+
+# All configuration is embedded - no external parameters needed
+Mappings:
+  ProjectConfig:
+    Settings:
+      ProjectName: 'photo-upload-app'
+      Environment: 'production'
+      StudentName: 'Tabari Linus'
+      GitHubOrg: 'Tabari-Linus'
+      GitHubAppRepo: 'photo-upload-app'
+      GitHubInfraRepo: 'ecf-infrastructure-repo'
+
+Resources:
+  # ==========================================
+  # Stack 1: Main Infrastructure (VPC, Networking)
+  # Deploy this first - all other stacks depend on it
+  # ==========================================
+  MainInfrastructureStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://raw.githubusercontent.com/${GitHubOrg}/${GitHubInfraRepo}/main/infrastructure-main.yaml'
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${ProjectName}-main-infrastructure'
+            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+        - Key: ManagedBy
+          Value: CloudFormation-GitSync
+        - Key: Environment
+          Value: !FindInMap [ProjectConfig, Settings, Environment]
+          
+  # ==========================================
+  # Stack 2: Storage Resources (S3 and RDS)
+  # Depends on Main Infrastructure for VPC and Security Groups
+  # ==========================================
+  StorageStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: MainInfrastructureStack
+    Properties:
+      TemplateURL: !Sub 'https://raw.githubusercontent.com/${GitHubOrg}/${GitHubInfraRepo}/main/infrastructure-storage.yaml'
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${ProjectName}-storage'
+            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+        - Key: ManagedBy
+          Value: CloudFormation-GitSync
+        - Key: Environment
+          Value: !FindInMap [ProjectConfig, Settings, Environment]
+          
+  # ==========================================
+  # Stack 3: ECS Application Resources
+  # Depends on both Infrastructure and Storage
+  # ==========================================
+  ECSApplicationStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: 
+      - MainInfrastructureStack
+      - StorageStack
+    Properties:
+      TemplateURL: !Sub 'https://raw.githubusercontent.com/${GitHubOrg}/${GitHubInfraRepo}/main/infrastructure-ecs.yaml'
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${ProjectName}-ecs-application'
+            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+        - Key: ManagedBy
+          Value: CloudFormation-GitSync
+        - Key: Environment
+          Value: !FindInMap [ProjectConfig, Settings, Environment]
+          
+  # ==========================================
+  # Stack 4: CI/CD Pipeline
+  # Depends on all other stacks
+  # ==========================================
+  CICDPipelineStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - MainInfrastructureStack
+      - StorageStack
+      - ECSApplicationStack
+    Properties:
+      TemplateURL: !Sub 'https://raw.githubusercontent.com/${GitHubOrg}/${GitHubInfraRepo}/main/infrastructure-cicd.yaml'
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${ProjectName}-cicd-pipeline'
+            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+        - Key: ManagedBy
+          Value: CloudFormation-GitSync
+        - Key: Environment
+          Value: !FindInMap [ProjectConfig, Settings, Environment]
+
+# Outputs from all nested stacks
+Outputs:
+  ApplicationURL:
+    Description: URL to access the photo gallery application
+    Value: !GetAtt ECSApplicationStack.Outputs.ALBEndpoint
+    Export:
+      Name: !Sub '${AWS::StackName}-ApplicationURL'
+    
+  ECRRepositoryURI:
+    Description: ECR Repository URI for pushing Docker images
+    Value: !GetAtt ECSApplicationStack.Outputs.ECRRepositoryUri
+    Export:
+      Name: !Sub '${AWS::StackName}-ECRRepositoryURI'
+    
+  GitHubActionsRoleArn:
+    Description: IAM Role ARN for GitHub Actions OIDC - Add this to your GitHub repository secrets as AWS_ROLE_TO_ASSUME
+    Value: !GetAtt CICDPipelineStack.Outputs.GitHubActionsRoleArn
+    Export:
+      Name: !Sub '${AWS::StackName}-GitHubActionsRoleArn'
+    
+  S3BucketName:
+    Description: S3 bucket name for photo storage
+    Value: !GetAtt StorageStack.Outputs.S3BucketName
+    Export:
+      Name: !Sub '${AWS::StackName}-S3BucketName'
+    
+  DatabaseEndpoint:
+    Description: RDS PostgreSQL endpoint
+    Value: !GetAtt StorageStack.Outputs.DatabaseEndpoint
+    Export:
+      Name: !Sub '${AWS::StackName}-DatabaseEndpoint'
+    
+  ECSClusterName:
+    Description: ECS Cluster name
+    Value: !GetAtt ECSApplicationStack.Outputs.ECSClusterName
+    Export:
+      Name: !Sub '${AWS::StackName}-ECSClusterName'
+    
+  DeploymentStatus:
+    Description: Deployment instructions and status
+    Value: !Sub |
+      ✅ All stacks deployed successfully via GitSync!
+      
+      Next Steps:
+      1. Add GitHub Actions Secret:
+         - Repository: https://github.com/${ProjectConfig.Settings.GitHubOrg}/${ProjectConfig.Settings.GitHubAppRepo}/settings/secrets/actions
+         - Secret Name: AWS_ROLE_TO_ASSUME
+         - Secret Value: ${CICDPipelineStack.Outputs.GitHubActionsRoleArn}
+      
+      2. Application will be available at:
+         http://${ECSApplicationStack.Outputs.ALBEndpoint}
+         (after first Docker image is pushed)
+      
+      To make infrastructure changes:
+      - Edit any template file
+      - Commit and push to GitHub
+      - GitSync will automatically update the stacks

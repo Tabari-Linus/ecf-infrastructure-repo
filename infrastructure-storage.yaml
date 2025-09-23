@@ -1,0 +1,354 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Storage resources for Photo Upload Application - S3 Bucket and RDS PostgreSQL with auto-generated credentials'
+
+Mappings:
+  ProjectConfig:
+    Settings:
+      ProjectName: 'photo-upload-app'
+      Environment: 'production'
+      
+  DatabaseConfig:
+    Settings:
+      DBName: 'photodb'
+      DBUsername: 'photodbadmin'
+      Engine: 'postgres'
+      EngineVersion: '15.4'
+      InstanceClass: 'db.t3.micro'
+      AllocatedStorage: 20
+      BackupRetentionPeriod: 7
+      MultiAZ: true
+      DeletionProtection: false
+      
+  S3Config:
+    Lifecycle:
+      TransitionToIADays: 90
+      TransitionToGlacierDays: 365
+      NoncurrentVersionExpirationDays: 30
+
+Resources:
+  # ==========================================
+  # Generate Random Password for RDS
+  # ==========================================
+  
+  DBPasswordSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 
+        - '/${ProjectName}/rds/master-password'
+        - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      Description: Auto-generated RDS master password
+      GenerateSecretString:
+        SecretStringTemplate: !Sub |
+          {
+            "username": "${DBUsername}"
+          }
+        GenerateStringKey: 'password'
+        PasswordLength: 32
+        ExcludeCharacters: '"@/\'
+        RequireEachIncludedType: true
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${ProjectName}-db-password'
+            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+        - Key: ManagedBy
+          Value: CloudFormation
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+          
+  # ==========================================
+  # S3 Bucket for Photo Storage
+  # ==========================================
+  
+  PhotoS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 
+        - '${ProjectName}-photos-${AWS::AccountId}-${AWS::Region}'
+        - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldVersions
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: !FindInMap [S3Config, Lifecycle, NoncurrentVersionExpirationDays]
+          - Id: TransitionToIA
+            Status: Enabled
+            Transitions:
+              - TransitionInDays: !FindInMap [S3Config, Lifecycle, TransitionToIADays]
+                StorageClass: STANDARD_IA
+          - Id: TransitionToGlacier
+            Status: Enabled
+            Transitions:
+              - TransitionInDays: !FindInMap [S3Config, Lifecycle, TransitionToGlacierDays]
+                StorageClass: GLACIER
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, PUT, POST, DELETE, HEAD]
+            AllowedOrigins: ['*']
+            MaxAge: 3000
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${ProjectName}-photos-bucket'
+            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+        - Key: Environment
+          Value: !FindInMap [ProjectConfig, Settings, Environment]
+          
+  # S3 Bucket Policy - Restrict to VPC Endpoint
+  PhotoS3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref PhotoS3Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureConnections
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !Sub '${PhotoS3Bucket.Arn}'
+              - !Sub '${PhotoS3Bucket.Arn}/*'
+            Condition:
+              Bool:
+                'aws:SecureTransport': 'false'
+          - Sid: AllowVPCEndpointAccess
+            Effect: Allow
+            Principal: '*'
+            Action:
+              - 's3:GetObject'
+              - 's3:PutObject'
+              - 's3:DeleteObject'
+              - 's3:ListBucket'
+            Resource:
+              - !Sub '${PhotoS3Bucket.Arn}'
+              - !Sub '${PhotoS3Bucket.Arn}/*'
+            Condition:
+              StringEquals:
+                'aws:SourceVpce':
+                  Fn::ImportValue: !Sub 
+                    - '${StackName}-S3-VPCEndpoint-ID'
+                    - StackName: 'photo-upload-app-main-infrastructure'
+                  
+  # ==========================================
+  # RDS PostgreSQL Database
+  # ==========================================
+  
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupName: !Sub 
+        - '${ProjectName}-db-subnet-group'
+        - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      DBSubnetGroupDescription: Subnet group for RDS PostgreSQL
+      SubnetIds:
+        - Fn::ImportValue: 'photo-upload-app-main-infrastructure-DatabaseSubnetA-ID'
+        - Fn::ImportValue: 'photo-upload-app-main-infrastructure-DatabaseSubnetB-ID'
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${ProjectName}-db-subnet-group'
+            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+          
+  DBParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      DBParameterGroupName: !Sub 
+        - '${ProjectName}-postgres-params'
+        - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      Description: Parameter group for PostgreSQL with optimized settings
+      Family: postgres15
+      Parameters:
+        shared_preload_libraries: pg_stat_statements
+        log_statement: all
+        log_min_duration_statement: 1000  # Log queries taking more than 1 second
+        max_connections: 100
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${ProjectName}-postgres-params'
+            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+          
+  PostgreSQLDatabase:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: !Sub 
+        - '${ProjectName}-postgres-db'
+        - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      DBName: !FindInMap [DatabaseConfig, Settings, DBName]
+      Engine: !FindInMap [DatabaseConfig, Settings, Engine]
+      EngineVersion: !FindInMap [DatabaseConfig, Settings, EngineVersion]
+      DBInstanceClass: !FindInMap [DatabaseConfig, Settings, InstanceClass]
+      AllocatedStorage: !FindInMap [DatabaseConfig, Settings, AllocatedStorage]
+      StorageType: gp3
+      StorageEncrypted: true
+      MasterUsername: !Sub '{{resolve:secretsmanager:${DBPasswordSecret}:SecretString:username}}'
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${DBPasswordSecret}:SecretString:password}}'
+      VPCSecurityGroups:
+        - Fn::ImportValue: 'photo-upload-app-main-infrastructure-Database-SG-ID'
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      DBParameterGroupName: !Ref DBParameterGroup
+      BackupRetentionPeriod: !FindInMap [DatabaseConfig, Settings, BackupRetentionPeriod]
+      PreferredBackupWindow: '03:00-04:00'
+      PreferredMaintenanceWindow: 'sun:04:00-sun:05:00'
+      MultiAZ: !FindInMap [DatabaseConfig, Settings, MultiAZ]
+      EnablePerformanceInsights: true
+      PerformanceInsightsRetentionPeriod: 7
+      DeletionProtection: !FindInMap [DatabaseConfig, Settings, DeletionProtection]
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${ProjectName}-postgres-db'
+            - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+        - Key: Environment
+          Value: !FindInMap [ProjectConfig, Settings, Environment]
+          
+  # Attach the secret to RDS for automatic rotation
+  SecretRDSAttachment:
+    Type: AWS::SecretsManager::SecretTargetAttachment
+    Properties:
+      SecretId: !Ref DBPasswordSecret
+      TargetId: !Ref PostgreSQLDatabase
+      TargetType: AWS::RDS::DBInstance
+      
+  # Update secret with complete connection info after RDS creation
+  UpdateSecretWithConnectionInfo:
+    Type: AWS::CloudFormation::CustomResource
+    DependsOn: PostgreSQLDatabase
+    Properties:
+      ServiceToken: !GetAtt UpdateSecretFunction.Arn
+      SecretId: !Ref DBPasswordSecret
+      DBEndpoint: !GetAtt PostgreSQLDatabase.Endpoint.Address
+      DBPort: !GetAtt PostgreSQLDatabase.Endpoint.Port
+      DBName: !FindInMap [DatabaseConfig, Settings, DBName]
+      
+  UpdateSecretFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 
+        - '${ProjectName}-update-secret'
+        - ProjectName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      Runtime: python3.9
+      Handler: index.handler
+      Role: !GetAtt UpdateSecretFunctionRole.Arn
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import cfnresponse
+          
+          def handler(event, context):
+              try:
+                  if event['RequestType'] == 'Delete':
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                      return
+                      
+                  secret_id = event['ResourceProperties']['SecretId']
+                  db_endpoint = event['ResourceProperties']['DBEndpoint']
+                  db_port = event['ResourceProperties']['DBPort']
+                  db_name = event['ResourceProperties']['DBName']
+                  
+                  sm_client = boto3.client('secretsmanager')
+                  
+                  # Get current secret
+                  response = sm_client.get_secret_value(SecretId=secret_id)
+                  current_secret = json.loads(response['SecretString'])
+                  
+                  # Update with connection info
+                  current_secret['host'] = db_endpoint
+                  current_secret['port'] = db_port
+                  current_secret['dbname'] = db_name
+                  current_secret['engine'] = 'postgres'
+                  current_secret['jdbcUrl'] = f"jdbc:postgresql://{db_endpoint}:{db_port}/{db_name}"
+                  
+                  # Update secret
+                  sm_client.update_secret(
+                      SecretId=secret_id,
+                      SecretString=json.dumps(current_secret)
+                  )
+                  
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {
+                      'SecretArn': secret_id
+                  })
+              except Exception as e:
+                  print(f"Error: {str(e)}")
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {})
+                  
+  UpdateSecretFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: UpdateSecretPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'secretsmanager:GetSecretValue'
+                  - 'secretsmanager:UpdateSecret'
+                Resource: !Ref DBPasswordSecret
+
+Outputs:
+  S3BucketName:
+    Description: Name of the S3 bucket for photos
+    Value: !Ref PhotoS3Bucket
+    Export:
+      Name: !Sub '${AWS::StackName}-S3-Bucket-Name'
+      
+  S3BucketArn:
+    Description: ARN of the S3 bucket
+    Value: !GetAtt PhotoS3Bucket.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-S3-Bucket-Arn'
+      
+  DatabaseEndpoint:
+    Description: RDS PostgreSQL endpoint
+    Value: !GetAtt PostgreSQLDatabase.Endpoint.Address
+    Export:
+      Name: !Sub '${AWS::StackName}-DB-Endpoint'
+      
+  DatabasePort:
+    Description: RDS PostgreSQL port
+    Value: !GetAtt PostgreSQLDatabase.Endpoint.Port
+    Export:
+      Name: !Sub '${AWS::StackName}-DB-Port'
+      
+  DatabaseSecretArn:
+    Description: ARN of the database credentials secret
+    Value: !Ref DBPasswordSecret
+    Export:
+      Name: !Sub '${AWS::StackName}-DB-Secret-Arn'
+      
+  JdbcUrl:
+    Description: JDBC connection string for the database
+    Value: !Sub 
+      - 'jdbc:postgresql://${Endpoint}:${Port}/${DBName}'
+      - Endpoint: !GetAtt PostgreSQLDatabase.Endpoint.Address
+        Port: !GetAtt PostgreSQLDatabase.Endpoint.Port
+        DBName: !FindInMap [DatabaseConfig, Settings, DBName]
+    Export:
+      Name: !Sub '${AWS::StackName}-JDBC-URL'

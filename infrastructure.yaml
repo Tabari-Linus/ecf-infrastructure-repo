@@ -2,15 +2,39 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: 'Complete Photo Upload Application Infrastructure - Single Template for GitSync'
 
 # All configuration embedded - no external parameters or scripts needed
+Parameters:
+  ProjectName:
+    Type: String
+    Default: 'photo-upload-app'
+  Environment:
+    Type: String
+    Default: 'production'
+  StudentName:
+    Type: String
+    Default: 'Tabari Linus'
+  ContainerPort:
+    Type: Number
+    Default: 8080
+  DesiredCount:
+    Type: Number
+    Default: 2
+  GitHubOrganization:
+    Type: String
+    Default: 'Tabari-Linus'
+  ApplicationRepo:
+    Type: String
+    Default: 'photo-upload-app'
+  ImageTag:
+    Type: String
+    Default: 'latest'
+  TaskCpu:
+    Type: String
+    Default: '512'
+  TaskMemory:
+    Type: String
+    Default: '1024'
+
 Mappings:
-  ProjectConfig:
-    Settings:
-      ProjectName: 'photo-upload-app'
-      Environment: 'production'
-      StudentName: 'Tabari Linus'
-      ContainerPort: 8080
-      DesiredCount: 2
-      
   NetworkConfig:
     VPC:
       CIDR: '10.0.0.0/16'
@@ -30,17 +54,6 @@ Mappings:
       EngineVersion: '15.4'
       InstanceClass: 'db.t3.micro'
       AllocatedStorage: 20
-      
-  ECSConfig:
-    Task:
-      Cpu: '512'
-      Memory: '1024'
-      ImageTag: 'latest'
-      
-  GitHubConfig:
-    Settings:
-      Organization: 'Tabari-Linus'
-      ApplicationRepo: 'photo-upload-app'
 
 Resources:
   # ==========================================
@@ -289,8 +302,8 @@ Resources:
       VpcId: !Ref VPC
       SecurityGroupIngress:
         - IpProtocol: tcp
-          FromPort: !FindInMap [ProjectConfig, Settings, ContainerPort]
-          ToPort: !FindInMap [ProjectConfig, Settings, ContainerPort]
+          FromPort: !Ref ContainerPort
+          ToPort: !Ref ContainerPort
           SourceSecurityGroupId: !Ref ALBSecurityGroup
       Tags:
         - Key: Name
@@ -427,7 +440,7 @@ Resources:
   ECRRepository:
     Type: AWS::ECR::Repository
     Properties:
-      RepositoryName: !FindInMap [ProjectConfig, Settings, ProjectName]
+      RepositoryName: !Ref ProjectName
       ImageScanningConfiguration:
         ScanOnPush: true
       LifecyclePolicy:
@@ -470,7 +483,7 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       Name: !Sub '${ProjectName}-tg'
-      Port: !FindInMap [ProjectConfig, Settings, ContainerPort]
+      Port: !Ref ContainerPort
       Protocol: HTTP
       TargetType: ip
       VpcId: !Ref VPC
@@ -563,22 +576,22 @@ Resources:
       NetworkMode: awsvpc
       RequiresCompatibilities:
         - FARGATE
-      Cpu: !FindInMap [ECSConfig, Task, Cpu]
-      Memory: !FindInMap [ECSConfig, Task, Memory]
+      Cpu: !Ref TaskCpu
+      Memory: !Ref TaskMemory
       ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
       TaskRoleArn: !GetAtt ECSTaskRole.Arn
       ContainerDefinitions:
-        - Name: !FindInMap [ProjectConfig, Settings, ProjectName]
-          Image: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepository}:${ECSConfig.Task.ImageTag}'
+        - Name: !Ref ProjectName
+          Image: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepository}:${ImageTag}'
           PortMappings:
-            - ContainerPort: !FindInMap [ProjectConfig, Settings, ContainerPort]
+            - ContainerPort: !Ref ContainerPort
           Environment:
             - Name: AWS_REGION
               Value: !Ref 'AWS::Region'
             - Name: S3_BUCKET_NAME
               Value: !Ref PhotoS3Bucket
             - Name: STUDENT_NAME
-              Value: !FindInMap [ProjectConfig, Settings, StudentName]
+              Value: !Ref StudentName
             - Name: DB_URL
               Value: !Sub 'jdbc:postgresql://${PostgreSQLDatabase.Endpoint.Address}:${PostgreSQLDatabase.Endpoint.Port}/${DatabaseConfig.Settings.DBName}'
           Secrets:
@@ -600,7 +613,7 @@ Resources:
       ServiceName: !Sub '${ProjectName}-service'
       Cluster: !Ref ECSCluster
       TaskDefinition: !Ref TaskDefinition
-      DesiredCount: !FindInMap [ProjectConfig, Settings, DesiredCount]
+      DesiredCount: !Ref DesiredCount
       LaunchType: FARGATE
       NetworkConfiguration:
         AwsvpcConfiguration:
@@ -611,8 +624,8 @@ Resources:
             - !Ref ECSTaskSecurityGroup
           AssignPublicIp: DISABLED
       LoadBalancers:
-        - ContainerName: !FindInMap [ProjectConfig, Settings, ProjectName]
-          ContainerPort: !FindInMap [ProjectConfig, Settings, ContainerPort]
+        - ContainerName: !Ref ProjectName
+          ContainerPort: !Ref ContainerPort
           TargetGroupArn: !Ref TargetGroup
       HealthCheckGracePeriodSeconds: 60
       DeploymentConfiguration:
@@ -651,7 +664,7 @@ Resources:
               StringEquals:
                 'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com'
               StringLike:
-                'token.actions.githubusercontent.com:sub': !Sub 'repo:${GitHubConfig.Settings.Organization}/${GitHubConfig.Settings.ApplicationRepo}:*'
+                'token.actions.githubusercontent.com:sub': !Sub 'repo:${GitHubOrganization}/${ApplicationRepo}:*'
       ManagedPolicyArns:
         - 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPowerUser'
         
@@ -690,7 +703,7 @@ Resources:
           action-type:
             - PUSH
           repository-name:
-            - !FindInMap [ProjectConfig, Settings, ProjectName]
+            - !Ref ProjectName
           image-tag:
             - latest
       State: ENABLED
@@ -728,7 +741,7 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       Name: !Sub '${ProjectName}-tg-green'
-      Port: !FindInMap [ProjectConfig, Settings, ContainerPort]
+      Port: !Ref ContainerPort
       Protocol: HTTP
       TargetType: ip
       VpcId: !Ref VPC
@@ -768,7 +781,7 @@ Resources:
             TargetGroups:
               - Name: !GetAtt TargetGroup.TargetGroupName
               - Name: !GetAtt GreenTargetGroup.TargetGroupName
-                
+              
   CodeDeployRole:
     Type: AWS::IAM::Role
     Properties:
@@ -800,7 +813,7 @@ Resources:
                 Provider: ECR
                 Version: '1'
               Configuration:
-                RepositoryName: !FindInMap [ProjectConfig, Settings, ProjectName]
+                RepositoryName: !Ref ProjectName
                 ImageTag: latest
               OutputArtifacts:
                 - Name: SourceOutput
@@ -895,9 +908,9 @@ Outputs:
       ✅ Infrastructure deployed successfully!
       
       1. Add GitHub Actions secret:
-         Repository: https://github.com/${GitHubConfig.Settings.Organization}/${GitHubConfig.Settings.ApplicationRepo}/settings/secrets/actions
-         Name: AWS_ROLE_TO_ASSUME
-         Value: ${GitHubActionsRole.Arn}
+          Repository: https://github.com/${GitHubOrganization}/${ApplicationRepo}/settings/secrets/actions
+          Name: AWS_ROLE_TO_ASSUME
+          Value: ${GitHubActionsRole.Arn}
       
       2. Push application code to trigger Docker build and deployment
       

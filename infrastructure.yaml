@@ -806,7 +806,9 @@ Resources:
       ApplicationName: !Ref CodeDeployApplication
       DeploymentGroupName: !Sub '${ProjectName}-deployment-group'
       ServiceRoleArn: !GetAtt CodeDeployRole.Arn
-      DeploymentConfigName: CodeDeployDefault.ECSAllAtOnceBlueGreen
+      DeploymentStyle:
+        DeploymentOption: WITH_TRAFFIC_CONTROL
+        DeploymentType: BLUE_GREEN
       BlueGreenDeploymentConfiguration:
         TerminateBlueInstancesOnDeploymentSuccess:
           Action: TERMINATE

@@ -944,8 +944,9 @@ Resources:
                 Action:
                   - iam:PassRole
                 Resource:
-                  - !Sub "arn:aws:iam::${AWS::AccountId}:role/ECS-Lab-Execution-Role"
-                  - !Sub "arn:aws:iam::${AWS::AccountId}:role/ECS-Lab-Task-Role"
+                  - !GetAtt ECSTaskExecutionRole.Arn
+                  - !GetAtt ECSTaskRole.Arn
+                  - !GetAtt CodeDeployRole.Arn
 
 # ==========================================
 # OUTPUTS

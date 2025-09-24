@@ -743,7 +743,7 @@ Resources:
             - latest
       State: ENABLED
       Targets:
-        - Arn: !GetAtt CodePipeline.Arn
+        - Arn: !Sub 'arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${CodePipeline}'
           Id: CodePipelineTarget
           RoleArn: !GetAtt EventBridgeRole.Arn
           

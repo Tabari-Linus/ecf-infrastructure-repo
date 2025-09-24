@@ -796,7 +796,6 @@ Resources:
       - ECSService
       - ALBListener
       - TargetGroup
-      - CodeDeployRole
     Properties:
       ApplicationName: !Ref CodeDeployApplication
       DeploymentGroupName: !Sub '${ProjectName}-deployment-group'
@@ -842,29 +841,10 @@ Resources:
               Service: codedeploy.amazonaws.com
             Action: 'sts:AssumeRole'
       ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/service-role/AWSCodeDeployRoleForECS'
-        - 'arn:aws:iam::aws:policy/AmazonECSFullAccess'
-        - 'arn:aws:iam::aws:policy/ElasticLoadBalancingFullAccess'
-        - 'arn:aws:iam::aws:policy/CloudWatchFullAccess'
-      Policies:
-        - PolicyName: S3Access
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - 's3:GetObject'
-                  - 's3:PutObject'
-                  - 's3:ListBucket'
-                Resource:
-                  - !GetAtt ArtifactsBucket.Arn
-                  - !Sub '${ArtifactsBucket.Arn}/*'
+        - 'arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS'
         
   CodePipeline:
     Type: AWS::CodePipeline::Pipeline
-    DependsOn:
-      - CodePipelineRole
-      - CodeDeployDeploymentGroup
     Properties:
       Name: !Sub '${ProjectName}-pipeline'
       RoleArn: !GetAtt CodePipelineRole.Arn
@@ -903,6 +883,7 @@ Resources:
                 AppSpecTemplatePath: appspec.yaml
               InputArtifacts:
                 - Name: SourceOutput
+              RoleArn: !GetAtt CodePipelineRole.Arn
                 
   CodePipelineRole:
     Type: AWS::IAM::Role
@@ -923,35 +904,14 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - 's3:GetObject'
-                  - 's3:PutObject'
-                  - 's3:ListBucket'
-                Resource:
-                  - !GetAtt ArtifactsBucket.Arn
-                  - !Sub '${ArtifactsBucket.Arn}/*'
-              - Effect: Allow
-                Action:
-                  - 'ecr:GetAuthorizationToken'
-                  - 'ecr:BatchCheckLayerAvailability'
-                  - 'ecr:GetDownloadUrlForLayer'
-                  - 'ecr:BatchGetImage'
-                Resource:
-                  - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${ProjectName}'
-              - Effect: Allow
-                Action:
-                  - 'ecs:UpdateService'
-                  - 'ecs:DescribeServices'
-                Resource:
-                  - !Sub 'arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:service/${ECSCluster}/${ProjectName}-service'
-              - Effect: Allow
-                Action:
+                  - 's3:*'
                   - 'codedeploy:*'
-                Resource:
-                  - !Sub 'arn:aws:codedeploy:${AWS::Region}:${AWS::AccountId}:application:${ProjectName}-app'
-                  - !Sub 'arn:aws:codedeploy:${AWS::Region}:${AWS::AccountId}:deploymentgroup:${ProjectName}-app/${ProjectName}-deployment-group'
+                  - 'ecr:*'
+                  - 'ecs:*'
+                Resource: '*'
               - Effect: Allow
                 Action: 'iam:PassRole'
-                Resource:
+                Resource: 
                   - !GetAtt CodeDeployRole.Arn
                   - !GetAtt ECSTaskExecutionRole.Arn
                   - !GetAtt ECSTaskRole.Arn

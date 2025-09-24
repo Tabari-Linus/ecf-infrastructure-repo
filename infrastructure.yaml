@@ -354,8 +354,6 @@ Resources:
   # STORAGE RESOURCES (S3 & RDS)
   # ==========================================
   
-  # Auto-generate secure password
-  # Auto-generate secure password
   DBPasswordSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
@@ -403,6 +401,27 @@ Resources:
         - Key: Name
           Value: !Sub '${ProjectName}-photos-bucket'
           
+  ArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${ProjectName}-artifacts-${AWS::AccountId}-${AWS::Region}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldArtifacts
+            Status: Enabled
+            ExpirationInDays: 30
+            
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
@@ -427,10 +446,8 @@ Resources:
       AllocatedStorage: !FindInMap [DatabaseConfig, Settings, AllocatedStorage]
       StorageType: gp3
       StorageEncrypted: true
-      # Corrected line: Reference the mapping directly for validation
-      MasterUsername: !FindInMap [DatabaseConfig, Settings, DBUsername] 
-      # Updated line: The password still needs to be resolved from Secrets Manager
-      MasterUserPassword: !Sub '{{resolve:secretsmanager:${DBPasswordSecret}:SecretString:password}}' 
+      MasterUsername: !FindInMap [DatabaseConfig, Settings, DBUsername]
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${DBPasswordSecret}:SecretString:password}}'
       VPCSecurityGroups:
         - !Ref DatabaseSecurityGroup
       DBSubnetGroupName: !Ref DBSubnetGroup
@@ -508,6 +525,24 @@ Resources:
       Matcher:
         HttpCode: '200'
         
+  GreenTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub '${ProjectName}-tg-green'
+      Port: !Ref ContainerPort
+      Protocol: HTTP
+      TargetType: ip
+      VpcId: !Ref VPC
+      HealthCheckEnabled: true
+      HealthCheckPath: /health
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: '200'
+        
   ALBListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
@@ -526,9 +561,14 @@ Resources:
         - Name: containerInsights
           Value: enabled
           
+  # ==========================================
+  # IAM ROLES (Created first to avoid circular dependencies)
+  # ==========================================
+  
   ECSTaskExecutionRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Sub '${ProjectName}-ecs-execution-role'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -558,6 +598,7 @@ Resources:
   ECSTaskRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Sub '${ProjectName}-ecs-task-role'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -580,6 +621,134 @@ Resources:
                   - !GetAtt PhotoS3Bucket.Arn
                   - !Sub '${PhotoS3Bucket.Arn}/*'
                   
+  CodeDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-codedeploy-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codedeploy.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS'
+        
+  CodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-pipeline-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: PipelineExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:GetBucketVersioning'
+                  - 's3:PutObject'
+                  - 's3:GetObject'
+                  - 's3:GetObjectVersion'
+                Resource: 
+                  - !Sub '${ArtifactsBucket}/*'
+                  - !GetAtt ArtifactsBucket.Arn
+              - Effect: Allow
+                Action:
+                  - 'codedeploy:CreateDeployment'
+                  - 'codedeploy:GetApplication'
+                  - 'codedeploy:GetApplicationRevision'
+                  - 'codedeploy:GetDeployment'
+                  - 'codedeploy:GetDeploymentConfig'
+                  - 'codedeploy:RegisterApplicationRevision'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'ecs:DescribeServices'
+                  - 'ecs:DescribeTaskDefinition'
+                  - 'ecs:DescribeTasks'
+                  - 'ecs:ListTasks'
+                  - 'ecs:RegisterTaskDefinition'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'iam:PassRole'
+                Resource: 
+                  - !GetAtt ECSTaskExecutionRole.Arn
+                  - !GetAtt ECSTaskRole.Arn
+                  
+  EventBridgeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-eventbridge-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: StartPipeline
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 'codepipeline:StartPipelineExecution'
+                Resource: !Sub 'arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${ProjectName}-pipeline'
+                
+  GitHubOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: 'https://token.actions.githubusercontent.com'
+      ClientIdList:
+        - 'sts.amazonaws.com'
+      ThumbprintList:
+        - '6938fd4d98bab03faadb97b34396831e3780aea1'
+        - '1c58a3a8518e8759bf075b76b750d4f2df264fcd'
+        
+  GitHubActionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-github-actions-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !GetAtt GitHubOIDCProvider.Arn
+            Action: 'sts:AssumeRoleWithWebIdentity'
+            Condition:
+              StringEquals:
+                'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com'
+              StringLike:
+                'token.actions.githubusercontent.com:sub': !Sub 'repo:${GitHubOrganization}/${ApplicationRepo}:*'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPowerUser'
+      Policies:
+        - PolicyName: CodePipelineArtifactsAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:PutObject'
+                  - 's3:GetObject'
+                Resource: !Sub '${ArtifactsBucket}/*'
+              - Effect: Allow
+                Action:
+                  - 's3:GetBucketAcl'
+                  - 's3:GetBucketLocation'
+                  - 's3:ListBucket'
+                Resource: !GetAtt ArtifactsBucket.Arn
+        
   TaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
@@ -627,10 +796,8 @@ Resources:
       TaskDefinition: !Ref TaskDefinition
       DesiredCount: !If [IsInitialDeployment, 0, !Ref DesiredCount]
       LaunchType: FARGATE
-      # ADD THIS SECTION
       DeploymentController:
         Type: CODE_DEPLOY
-      # END ADDITION
       NetworkConfiguration:
         AwsvpcConfiguration:
           Subnets:
@@ -655,140 +822,11 @@ Resources:
   # CI/CD RESOURCES
   # ==========================================
   
-  GitHubOIDCProvider:
-    Type: AWS::IAM::OIDCProvider
-    Properties:
-      Url: 'https://token.actions.githubusercontent.com'
-      ClientIdList:
-        - 'sts.amazonaws.com'
-      ThumbprintList:
-        - '6938fd4d98bab03faadb97b34396831e3780aea1'
-        - '1c58a3a8518e8759bf075b76b750d4f2df264fcd'
-        
-  GitHubActionsRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub '${ProjectName}-github-actions-role'
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Federated: !GetAtt GitHubOIDCProvider.Arn
-            Action: 'sts:AssumeRoleWithWebIdentity'
-            Condition:
-              StringEquals:
-                'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com'
-              StringLike:
-                'token.actions.githubusercontent.com:sub': !Sub 'repo:${GitHubOrganization}/${ApplicationRepo}:*'
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPowerUser'
-      Policies:
-        - PolicyName: CodePipelineArtifactsAccess
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - 's3:PutObject'
-                Resource: !Sub '${ArtifactsBucket.Arn}/*'
-              - Effect: Allow
-                Action:
-                  - 's3:GetObject'
-                Resource: !Sub '${ArtifactsBucket.Arn}/*'
-              - Effect: Allow
-                Action:
-                  - 's3:GetBucketAcl'
-                  - 's3:GetBucketLocation'
-                  - 's3:ListBucket'
-                Resource: !GetAtt ArtifactsBucket.Arn
-        
-  ArtifactsBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Sub '${ProjectName}-artifacts-${AWS::AccountId}-${AWS::Region}'
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault:
-              SSEAlgorithm: AES256
-      VersioningConfiguration:
-        Status: Enabled
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-      LifecycleConfiguration:
-        Rules:
-          - Id: DeleteOldArtifacts
-            Status: Enabled
-            ExpirationInDays: 30
-            
-  ECRPushEventRule:
-    Type: AWS::Events::Rule
-    Properties:
-      Name: !Sub '${ProjectName}-ecr-push-rule'
-      Description: 'Trigger CodePipeline on ECR push'
-      EventPattern:
-        source:
-          - aws.ecr
-        detail-type:
-          - ECR Image Action
-        detail:
-          action-type:
-            - PUSH
-          repository-name:
-            - !Ref ProjectName
-          image-tag:
-            - latest
-      State: ENABLED
-      Targets:
-        - Arn: !Sub 'arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${CodePipeline}'
-          Id: CodePipelineTarget
-          RoleArn: !GetAtt EventBridgeRole.Arn
-          
-  EventBridgeRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: events.amazonaws.com
-            Action: 'sts:AssumeRole'
-      Policies:
-        - PolicyName: StartPipeline
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action: 'codepipeline:StartPipelineExecution'
-                Resource: !Sub 'arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${ProjectName}-pipeline'
-                
   CodeDeployApplication:
     Type: AWS::CodeDeploy::Application
     Properties:
       ApplicationName: !Sub '${ProjectName}-app'
       ComputePlatform: ECS
-      
-  GreenTargetGroup:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    Properties:
-      Name: !Sub '${ProjectName}-tg-green'
-      Port: !Ref ContainerPort
-      Protocol: HTTP
-      TargetType: ip
-      VpcId: !Ref VPC
-      HealthCheckEnabled: true
-      HealthCheckPath: /health
-      HealthCheckProtocol: HTTP
-      HealthCheckIntervalSeconds: 30
-      HealthCheckTimeoutSeconds: 5
-      HealthyThresholdCount: 2
-      UnhealthyThresholdCount: 3
-      Matcher:
-        HttpCode: '200'
         
   CodeDeployDeploymentGroup:
     Type: AWS::CodeDeploy::DeploymentGroup
@@ -796,6 +834,7 @@ Resources:
       - ECSService
       - ALBListener
       - TargetGroup
+      - GreenTargetGroup
     Properties:
       ApplicationName: !Ref CodeDeployApplication
       DeploymentGroupName: !Sub '${ProjectName}-deployment-group'
@@ -829,22 +868,14 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub '${ProjectName}-deployment-group'
-          
-  CodeDeployRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: codedeploy.amazonaws.com
-            Action: 'sts:AssumeRole'
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS'
-        
+                
   CodePipeline:
     Type: AWS::CodePipeline::Pipeline
+    DependsOn:
+      - CodePipelineRole
+      - ArtifactsBucket
+      - CodeDeployApplication
+      - CodeDeployDeploymentGroup
     Properties:
       Name: !Sub '${ProjectName}-pipeline'
       RoleArn: !GetAtt CodePipelineRole.Arn
@@ -862,8 +893,8 @@ Resources:
                 Version: '1'
               Configuration:
                 S3Bucket: !Ref ArtifactsBucket
-                S3ObjectKey: build-artifact.zip # This must be the name of the file you upload from your GitHub Actions workflow
-                PollForSourceChanges: false # EventBridge rule will trigger the pipeline
+                S3ObjectKey: build-artifact.zip
+                PollForSourceChanges: false
               OutputArtifacts:
                 - Name: SourceOutput
         - Name: Deploy
@@ -883,38 +914,32 @@ Resources:
                 AppSpecTemplatePath: appspec.yaml
               InputArtifacts:
                 - Name: SourceOutput
-                
-  CodePipelineRole:
-    Type: AWS::IAM::Role
+              RoleArn: !GetAtt CodeDeployRole.Arn
+              RunOrder: 1
+              
+  ECRPushEventRule:
+    Type: AWS::Events::Rule
+    DependsOn: CodePipeline
     Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: codepipeline.amazonaws.com
-            Action: 'sts:AssumeRole'
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/AWSCodePipeline_FullAccess'
-      Policies:
-        - PolicyName: PipelineExecutionPolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - 's3:*'
-                  - 'codedeploy:*'
-                  - 'ecr:*'
-                  - 'ecs:*'
-                Resource: '*'
-              - Effect: Allow
-                Action:
-                  - 'iam:PassRole'
-                Resource:
-                  - !GetAtt ECSTaskExecutionRole.Arn
-                  - !GetAtt ECSTaskRole.Arn
-                  - !GetAtt CodeDeployRole.Arn
+      Name: !Sub '${ProjectName}-ecr-push-rule'
+      Description: 'Trigger CodePipeline on ECR push'
+      EventPattern:
+        source:
+          - aws.ecr
+        detail-type:
+          - ECR Image Action
+        detail:
+          action-type:
+            - PUSH
+          repository-name:
+            - !Ref ProjectName
+          image-tag:
+            - latest
+      State: ENABLED
+      Targets:
+        - Arn: !Sub 'arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${CodePipeline}'
+          Id: CodePipelineTarget
+          RoleArn: !GetAtt EventBridgeRole.Arn
 
 # ==========================================
 # OUTPUTS
@@ -923,7 +948,7 @@ Resources:
 Outputs:
   ApplicationURL:
     Description: URL to access the application (after Docker image is pushed)
-    Value: !GetAtt ApplicationLoadBalancer.DNSName
+    Value: !Sub 'http://${ApplicationLoadBalancer.DNSName}'
     Export:
       Name: !Sub '${AWS::StackName}-ApplicationURL'
     
@@ -956,6 +981,12 @@ Outputs:
     Value: !Ref ECSCluster
     Export:
       Name: !Sub '${AWS::StackName}-ECSCluster'
+    
+  ArtifactsBucketName:
+    Description: S3 bucket for CodePipeline artifacts
+    Value: !Ref ArtifactsBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-ArtifactsBucket'
     
   NextSteps:
     Description: What to do after deployment

@@ -580,8 +580,6 @@ Resources:
                   - !GetAtt PhotoS3Bucket.Arn
                   - !Sub '${PhotoS3Bucket.Arn}/*'
                   
-  # ... (rest of the template is unchanged)
-
   TaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
@@ -618,37 +616,6 @@ Resources:
               awslogs-group: !Ref LogGroup
               awslogs-region: !Ref 'AWS::Region'
               awslogs-stream-prefix: ecs
-
-# ... (rest of the template is unchanged)
-              
-  # ECSService:
-  #   Type: AWS::ECS::Service
-  #   DependsOn: ALBListener
-  #   Properties:
-  #     ServiceName: !Sub '${ProjectName}-service'
-  #     Cluster: !Ref ECSCluster
-  #     TaskDefinition: !Ref TaskDefinition
-  #     DesiredCount: !Ref DesiredCount
-  #     LaunchType: FARGATE
-  #     NetworkConfiguration:
-  #       AwsvpcConfiguration:
-  #         Subnets:
-  #           - !Ref PrivateSubnetA
-  #           - !Ref PrivateSubnetB
-  #         SecurityGroups:
-  #           - !Ref ECSTaskSecurityGroup
-  #         AssignPublicIp: DISABLED
-  #     LoadBalancers:
-  #       - ContainerName: !Ref ProjectName
-  #         ContainerPort: !Ref ContainerPort
-  #         TargetGroupArn: !Ref TargetGroup
-  #     HealthCheckGracePeriodSeconds: 60
-  #     DeploymentConfiguration:
-  #       MaximumPercent: 200
-  #       MinimumHealthyPercent: 100
-  #       DeploymentCircuitBreaker:
-  #         Enable: true
-  #         Rollback: true
 
   ECSService:
     Type: AWS::ECS::Service
@@ -716,6 +683,25 @@ Resources:
                 'token.actions.githubusercontent.com:sub': !Sub 'repo:${GitHubOrganization}/${ApplicationRepo}:*'
       ManagedPolicyArns:
         - 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPowerUser'
+      Policies:
+        - PolicyName: CodePipelineArtifactsAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:PutObject'
+                Resource: !Sub '${ArtifactsBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - 's3:GetObject'
+                Resource: !Sub '${ArtifactsBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - 's3:GetBucketAcl'
+                  - 's3:GetBucketLocation'
+                  - 's3:ListBucket'
+                Resource: !GetAtt ArtifactsBucket.Arn
         
   ArtifactsBucket:
     Type: AWS::S3::Bucket
@@ -757,7 +743,7 @@ Resources:
             - latest
       State: ENABLED
       Targets:
-        - Arn: !Sub 'arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${CodePipeline}'
+        - Arn: !GetAtt CodePipeline.Arn
           Id: CodePipelineTarget
           RoleArn: !GetAtt EventBridgeRole.Arn
           
@@ -809,6 +795,7 @@ Resources:
     DependsOn:
       - ECSService
       - ALBListener
+      - TargetGroup
     Properties:
       ApplicationName: !Ref CodeDeployApplication
       DeploymentGroupName: !Sub '${ProjectName}-deployment-group'
@@ -842,9 +829,7 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub '${ProjectName}-deployment-group'
-      
-      
-              
+          
   CodeDeployRole:
     Type: AWS::IAM::Role
     Properties:
@@ -869,15 +854,16 @@ Resources:
       Stages:
         - Name: Source
           Actions:
-            - Name: ECRSource
+            - Name: S3Source
               ActionTypeId:
                 Category: Source
                 Owner: AWS
-                Provider: ECR
+                Provider: S3
                 Version: '1'
               Configuration:
-                RepositoryName: !Ref ProjectName
-                ImageTag: latest
+                S3Bucket: !Ref ArtifactsBucket
+                S3ObjectKey: build-artifact.zip # This must be the name of the file you upload from your GitHub Actions workflow
+                PollForSourceChanges: false # EventBridge rule will trigger the pipeline
               OutputArtifacts:
                 - Name: SourceOutput
         - Name: Deploy

@@ -660,6 +660,10 @@ Resources:
       TaskDefinition: !Ref TaskDefinition
       DesiredCount: !If [IsInitialDeployment, 0, !Ref DesiredCount]
       LaunchType: FARGATE
+      # ADD THIS SECTION
+      DeploymentController:
+        Type: CODE_DEPLOY
+      # END ADDITION
       NetworkConfiguration:
         AwsvpcConfiguration:
           Subnets:

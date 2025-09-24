@@ -806,21 +806,17 @@ Resources:
         
   CodeDeployDeploymentGroup:
     Type: AWS::CodeDeploy::DeploymentGroup
+    DependsOn:
+      - ECSService
+      - ALBListener
     Properties:
       ApplicationName: !Ref CodeDeployApplication
       DeploymentGroupName: !Sub '${ProjectName}-deployment-group'
       ServiceRoleArn: !GetAtt CodeDeployRole.Arn
+      DeploymentConfigName: CodeDeployDefault.ECSAllAtOnce
       DeploymentStyle:
-        DeploymentOption: WITH_TRAFFIC_CONTROL
         DeploymentType: BLUE_GREEN
-      BlueGreenDeploymentConfiguration:
-        TerminateBlueInstancesOnDeploymentSuccess:
-          Action: TERMINATE
-          TerminationWaitTimeInMinutes: 5
-        DeploymentReadyOption:
-          ActionOnTimeout: CONTINUE_DEPLOYMENT
-        GreenFleetProvisioningOption:
-          Action: DISCOVER_EXISTING
+        DeploymentOption: WITH_TRAFFIC_CONTROL
       ECSServices:
         - ClusterName: !Ref ECSCluster
           ServiceName: !GetAtt ECSService.Name
@@ -832,6 +828,22 @@ Resources:
             TargetGroups:
               - Name: !GetAtt TargetGroup.TargetGroupName
               - Name: !GetAtt GreenTargetGroup.TargetGroupName
+      BlueGreenDeploymentConfiguration:
+        DeploymentReadyOption:
+          ActionOnTimeout: CONTINUE_DEPLOYMENT
+        TerminateBlueInstancesOnDeploymentSuccess:
+          Action: TERMINATE
+          TerminationWaitTimeInMinutes: 5
+      AutoRollbackConfiguration:
+        Enabled: true
+        Events:
+          - DEPLOYMENT_FAILURE
+          - DEPLOYMENT_STOP_ON_ALARM
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-deployment-group'
+      
+      
               
   CodeDeployRole:
     Type: AWS::IAM::Role

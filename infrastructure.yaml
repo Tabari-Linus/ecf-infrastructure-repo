@@ -841,7 +841,11 @@ Resources:
               Service: codedeploy.amazonaws.com
             Action: 'sts:AssumeRole'
       ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS'
+        - arn:aws:iam::aws:policy/service-role/AWSCodeDeployRoleForECS
+        - arn:aws:iam::aws:policy/AmazonECSFullAccess
+        - arn:aws:iam::aws:policy/ElasticLoadBalancingFullAccess
+        - arn:aws:iam::aws:policy/CloudWatchFullAccess
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
         
   CodePipeline:
     Type: AWS::CodePipeline::Pipeline
@@ -883,7 +887,6 @@ Resources:
                 AppSpecTemplatePath: appspec.yaml
               InputArtifacts:
                 - Name: SourceOutput
-              RoleArn: !GetAtt CodePipelineRole.Arn
                 
   CodePipelineRole:
     Type: AWS::IAM::Role

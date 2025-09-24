@@ -910,7 +910,10 @@ Resources:
                 Resource: '*'
               - Effect: Allow
                 Action: 'iam:PassRole'
-                Resource: !GetAtt CodeDeployRole.Arn
+                Resource: 
+                  - !GetAtt CodeDeployRole.Arn
+                  - !GetAtt ECSTaskExecutionRole.Arn
+                  - !GetAtt ECSTaskRole.Arn
 
 # ==========================================
 # OUTPUTS

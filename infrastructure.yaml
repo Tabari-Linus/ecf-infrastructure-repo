@@ -33,6 +33,17 @@ Parameters:
   TaskMemory:
     Type: String
     Default: '1024'
+  DeploymentMode:
+    Type: String
+    Default: 'initial'
+    AllowedValues:
+      - initial
+      - standard
+    Description: 'Set to initial for first deployment, standard after image is available'
+
+Conditions:
+  IsInitialDeployment: !Equals [!Ref DeploymentMode, 'initial']
+  IsStandardDeployment: !Equals [!Ref DeploymentMode, 'standard']
 
 Mappings:
   NetworkConfig:
@@ -610,14 +621,44 @@ Resources:
 
 # ... (rest of the template is unchanged)
               
+  # ECSService:
+  #   Type: AWS::ECS::Service
+  #   DependsOn: ALBListener
+  #   Properties:
+  #     ServiceName: !Sub '${ProjectName}-service'
+  #     Cluster: !Ref ECSCluster
+  #     TaskDefinition: !Ref TaskDefinition
+  #     DesiredCount: !Ref DesiredCount
+  #     LaunchType: FARGATE
+  #     NetworkConfiguration:
+  #       AwsvpcConfiguration:
+  #         Subnets:
+  #           - !Ref PrivateSubnetA
+  #           - !Ref PrivateSubnetB
+  #         SecurityGroups:
+  #           - !Ref ECSTaskSecurityGroup
+  #         AssignPublicIp: DISABLED
+  #     LoadBalancers:
+  #       - ContainerName: !Ref ProjectName
+  #         ContainerPort: !Ref ContainerPort
+  #         TargetGroupArn: !Ref TargetGroup
+  #     HealthCheckGracePeriodSeconds: 60
+  #     DeploymentConfiguration:
+  #       MaximumPercent: 200
+  #       MinimumHealthyPercent: 100
+  #       DeploymentCircuitBreaker:
+  #         Enable: true
+  #         Rollback: true
+
   ECSService:
     Type: AWS::ECS::Service
-    DependsOn: ALBListener
+    DependsOn: 
+      - ALBListener
     Properties:
       ServiceName: !Sub '${ProjectName}-service'
       Cluster: !Ref ECSCluster
       TaskDefinition: !Ref TaskDefinition
-      DesiredCount: !Ref DesiredCount
+      DesiredCount: !If [IsInitialDeployment, 0, !Ref DesiredCount]
       LaunchType: FARGATE
       NetworkConfiguration:
         AwsvpcConfiguration:
@@ -631,13 +672,13 @@ Resources:
         - ContainerName: !Ref ProjectName
           ContainerPort: !Ref ContainerPort
           TargetGroupArn: !Ref TargetGroup
-      HealthCheckGracePeriodSeconds: 60
+      HealthCheckGracePeriodSeconds: 180
       DeploymentConfiguration:
         MaximumPercent: 200
-        MinimumHealthyPercent: 100
+        MinimumHealthyPercent: !If [IsInitialDeployment, 0, 100]
         DeploymentCircuitBreaker:
-          Enable: true
-          Rollback: true
+          Enable: !If [IsStandardDeployment, true, false]
+          Rollback: !If [IsStandardDeployment, true, false]
           
   # ==========================================
   # CI/CD RESOURCES

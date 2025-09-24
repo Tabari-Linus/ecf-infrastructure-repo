@@ -741,7 +741,7 @@ Resources:
                 Action:
                   - 's3:PutObject'
                   - 's3:GetObject'
-                Resource: !Sub '${ArtifactsBucket}/*'
+                Resource: !Sub '${ArtifactsBucket.Arn}/*'
               - Effect: Allow
                 Action:
                   - 's3:GetBucketAcl'

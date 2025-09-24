@@ -903,46 +903,14 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - s3:GetObject
-                  - s3:PutObject
-                  - s3:GetBucketVersioning
-                  - s3:ListBucket
-                Resource:
-                  - !Sub '${ArtifactsBucket.Arn}'
-                  - !Sub '${ArtifactsBucket.Arn}/*'
-              - Effect: Allow
-                Action:
-                  - ecr:GetAuthorizationToken
-                  - ecr:GetDownloadUrlForLayer
-                  - ecr:BatchGetImage
-                  - ecr:DescribeImages
-                  - ecr:DescribeRepositories
-                  - ecr:BatchCheckLayerAvailability
+                  - 's3:*'
+                  - 'codedeploy:*'
+                  - 'ecr:*'
+                  - 'ecs:*'
                 Resource: '*'
               - Effect: Allow
                 Action:
-                  - codedeploy:CreateDeployment
-                  - codedeploy:GetApplication
-                  - codedeploy:GetApplicationRevision
-                  - codedeploy:GetDeploymentGroup
-                  - codedeploy:GetDeployment
-                  - codedeploy:GetDeploymentConfig
-                  - codedeploy:RegisterApplicationRevision
-                  - codedeploy:CreateDeploymentConfig
-                  - codedeploy:CreateDeploymentGroup
-                Resource: '*'
-              - Effect: Allow
-                Action:
-                  - ecs:DescribeServices
-                  - ecs:DescribeTaskDefinition
-                  - ecs:DescribeTasks
-                  - ecs:ListTasks
-                  - ecs:RegisterTaskDefinition
-                  - ecs:UpdateService
-                Resource: '*'
-              - Effect: Allow
-                Action:
-                  - iam:PassRole
+                  - 'iam:PassRole'
                 Resource:
                   - !GetAtt ECSTaskExecutionRole.Arn
                   - !GetAtt ECSTaskRole.Arn

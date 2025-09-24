@@ -17,7 +17,7 @@ Parameters:
     Default: 8080
   DesiredCount:
     Type: Number
-    Default: 2
+    Default: 1
   GitHubOrganization:
     Type: String
     Default: 'Tabari-Linus'

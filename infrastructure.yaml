@@ -927,9 +927,7 @@ Resources:
                   - cloudwatch:GetMetricStatistics
                   - cloudwatch:ListMetrics
                 Resource: "*"
-      tags:
-        - Key: Name
-          Value: !Sub '${ProjectName}-codedeploy-role'
+
 
         
   CodePipeline:

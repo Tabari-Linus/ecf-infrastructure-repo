@@ -883,7 +883,6 @@ Resources:
                 AppSpecTemplatePath: appspec.yaml
               InputArtifacts:
                 - Name: SourceOutput
-              RoleArn: !GetAtt CodePipelineRole.Arn
                 
   CodePipelineRole:
     Type: AWS::IAM::Role

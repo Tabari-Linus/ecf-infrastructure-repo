@@ -772,7 +772,7 @@ Resources:
     Type: AWS::Events::Rule
     Properties:
       Name: !Sub '${ProjectName}-s3-artifact-rule'
-      Description: 'Trigger CodePipeline when build-artifact.zip is uploaded to S3'
+      Description: 'Trigger CodePipeline when any new build artifact is uploaded to S3'
       EventPattern:
         source:
           - aws.s3
@@ -784,7 +784,8 @@ Resources:
               - !Ref ArtifactsBucket
           object:
             key:
-              - prefix: ''
+              - prefix: 'build-artifact-'
+              - suffix: '.zip'
       State: ENABLED
       Targets:
         - Arn: !Sub 'arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${ProjectName}-pipeline'
@@ -1000,7 +1001,7 @@ Resources:
                 Version: '1'
               Configuration:
                 S3Bucket: !Ref ArtifactsBucket
-                S3ObjectKey: build-artifact.zip
+                S3ObjectKey: build-artifact-latest.zip  # Use the latest version
                 PollForSourceChanges: true
               OutputArtifacts:
                 - Name: SourceArtifact

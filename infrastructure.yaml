@@ -867,6 +867,7 @@ Resources:
   CodeDeployRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Sub '${ProjectName}-codedeploy-role'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -943,39 +944,35 @@ Resources:
       Stages:
         - Name: Source
           Actions:
-            - Name: S3Source
+            - Name: ECRSource
               ActionTypeId:
                 Category: Source
                 Owner: AWS
-                Provider: S3
+                Provider: ECR
                 Version: '1'
               Configuration:
-                S3Bucket: !Ref ArtifactsBucket
-                S3ObjectKey: build-artifact.zip # This must be the name of the file you upload from your GitHub Actions workflow
-                PollForSourceChanges: false # EventBridge rule will trigger the pipeline
+                RepositoryName: !Ref ProjectName
+                ImageTag: latest
               OutputArtifacts:
-                - Name: SourceOutput
+                - Name: SourceArtifact
         - Name: Deploy
           Actions:
             - Name: DeployToECS
               ActionTypeId:
                 Category: Deploy
                 Owner: AWS
-                Provider: CodeDeployToECS
+                Provider: CodeDeploy
                 Version: '1'
               Configuration:
                 ApplicationName: !Ref CodeDeployApplication
                 DeploymentGroupName: !Ref CodeDeployDeploymentGroup
-                TaskDefinitionTemplateArtifact: SourceOutput
-                TaskDefinitionTemplatePath: taskdef.json
-                AppSpecTemplateArtifact: SourceOutput
-                AppSpecTemplatePath: appspec.yaml
               InputArtifacts:
-                - Name: SourceOutput
+                - Name: SourceArtifact
                 
   CodePipelineRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Sub '${ProjectName}-codepipeline-role'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -983,6 +980,8 @@ Resources:
             Principal:
               Service: codepipeline.amazonaws.com
             Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AWSCodePipeline_FullAccess'
       Policies:
         - PolicyName: PipelineExecutionPolicy
           PolicyDocument:

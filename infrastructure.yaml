@@ -1029,14 +1029,13 @@ Resources:
                   - ecr:UploadLayerPart
                   - ecr:CompleteLayerUpload
                 Resource: "*"
-                Resource:
               - Effect: Allow
                 Action:
                   - iam:PassRole
                 Resource:
                   - !GetAtt ECSTaskExecutionRole.Arn
                   - !GetAtt ECSTaskRole.Arn
-                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/${ProjectName}-codedeploy-role'
+                  - !GetAtt CodeDeployRole.Arn
 
 
               #     - 's3:*'

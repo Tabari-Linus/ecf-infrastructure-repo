@@ -1,3 +1,6 @@
-template-file-path: infrastructure.yaml
+template-file-path: infrastructure-template.yaml
 parameters: {}
-tags: {}
+tags: {
+  "Project": "PhotoUploadLab",
+  "Environment": "Production"
+}

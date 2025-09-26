@@ -705,13 +705,13 @@ Resources:
                   - s3:PutObject
                   - s3:GetObject
                   - s3:GetObjectVersion
-                Resource: !Sub '${ArtifactsBucket.Arn}/*'
-              - Effect: Allow
-                Action:
-                  - s3:GetBucketAcl
-                  - s3:GetBucketLocation
+                  - s3:DeleteObject
                   - s3:ListBucket
-                Resource: !GetAtt ArtifactsBucket.Arn
+                  - s3:GetBucketAcl
+                Resource: 
+                  - !Sub '${ArtifactsBucket.Arn}/*'
+                  - !Sub '${ArtifactsBucket.Arn}'
+                  - !GetAtt ArtifactsBucket.Arn
               - Effect: Allow
                 Action:
                   - ecr:GetAuthorizationToken
@@ -755,29 +755,51 @@ Resources:
           - Id: DeleteOldArtifacts
             Status: Enabled
             ExpirationInDays: 30
-            
-  ECRPushEventRule:
+
+
+  S3ArtifactEventRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub '${ProjectName}-ecr-push-rule'
-      Description: 'Trigger CodePipeline on ECR push'
+      Name: !Sub '${ProjectName}-s3-artifact-rule'
+      Description: 'Trigger CodePipeline when GitHub Actions uploads build artifact'
       EventPattern:
         source:
-          - aws.ecr
+          - aws.s3
         detail-type:
-          - ECR Image Action
+          - 'Object Created'
         detail:
-          action-type:
-            - PUSH
-          repository-name:
-            - !Ref ProjectName
-          image-tag:
-            - latest
+          bucket:
+            name: [!Ref ArtifactsBucket]
+          object:
+            key: ['build-artifact.zip']
       State: ENABLED
       Targets:
         - Arn: !Sub 'arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${ProjectName}-pipeline'
           Id: CodePipelineTarget
           RoleArn: !GetAtt EventBridgeRole.Arn
+            
+  # ECRPushEventRule:
+  #   Type: AWS::Events::Rule
+  #   Properties:
+  #     Name: !Sub '${ProjectName}-ecr-push-rule'
+  #     Description: 'Trigger CodePipeline on ECR push'
+  #     EventPattern:
+  #       source:
+  #         - aws.ecr
+  #       detail-type:
+  #         - ECR Image Action
+  #       detail:
+  #         action-type:
+  #           - PUSH
+  #         repository-name:
+  #           - !Ref ProjectName
+  #         image-tag:
+  #           - latest
+  #     State: ENABLED
+  #     Targets:
+  #       - Arn: !Sub 'arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${ProjectName}-pipeline'
+  #         Id: CodePipelineTarget
+  #         RoleArn: !GetAtt EventBridgeRole.Arn
           
   EventBridgeRole:
     Type: AWS::IAM::Role
@@ -944,17 +966,19 @@ Resources:
       Stages:
         - Name: Source
           Actions:
-            - Name: ECRSource
+            - Name: GitHubArtifactSource
               ActionTypeId:
                 Category: Source
                 Owner: AWS
-                Provider: ECR
+                Provider: S3
                 Version: '1'
               Configuration:
-                RepositoryName: !Ref ProjectName
-                ImageTag: latest
+                S3Bucket: !Ref ArtifactsBucket
+                S3ObjectKey: build-artifact.zip
+                PollForSourceChanges: false
               OutputArtifacts:
                 - Name: SourceArtifact
+              RunOrder: 1
         - Name: Deploy
           Actions:
             - Name: DeployToECS
@@ -968,6 +992,7 @@ Resources:
                 DeploymentGroupName: !Ref CodeDeployDeploymentGroup
               InputArtifacts:
                 - Name: SourceArtifact
+              RunOrder: 1
                 
   CodePipelineRole:
     Type: AWS::IAM::Role
@@ -1000,6 +1025,7 @@ Resources:
                 Resource:
                   - !GetAtt ArtifactsBucket.Arn
                   - !Sub '${ArtifactsBucket.Arn}/*'
+                  - !Sub '${ArtifactsBucket.Arn}/build-artifact.zip'
               - Effect: Allow
                 Action:
                   - codedeploy:CreateDeployment

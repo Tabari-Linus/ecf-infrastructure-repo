@@ -734,6 +734,17 @@ Resources:
                 Action:
                   - codepipeline:StartPipelineExecution
                 Resource: !Sub 'arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${ProjectName}-pipeline'
+      Policies:
+        - PolicyName: CloudFormationRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudformation:DescribeStacks
+                  - cloudformation:ListStacks
+                  - cloudformation:GetTemplate
+                Resource: !Sub 'arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*'
         
   ArtifactsBucket:
     Type: AWS::S3::Bucket
@@ -761,7 +772,7 @@ Resources:
     Type: AWS::Events::Rule
     Properties:
       Name: !Sub '${ProjectName}-s3-artifact-rule'
-      Description: 'Trigger CodePipeline when GitHub Actions uploads build artifact'
+      Description: 'Trigger CodePipeline when build-artifact.zip is uploaded to S3'
       EventPattern:
         source:
           - aws.s3
@@ -966,7 +977,7 @@ Resources:
       Stages:
         - Name: Source
           Actions:
-            - Name: GitHubArtifactSource
+            - Name: S3Source
               ActionTypeId:
                 Category: Source
                 Owner: AWS
@@ -975,13 +986,13 @@ Resources:
               Configuration:
                 S3Bucket: !Ref ArtifactsBucket
                 S3ObjectKey: build-artifact.zip
-                PollForSourceChanges: false
+                PollForSourceChanges: true
               OutputArtifacts:
                 - Name: SourceArtifact
               RunOrder: 1
         - Name: Deploy
           Actions:
-            - Name: DeployToECS
+            - Name: CodeDeploy
               ActionTypeId:
                 Category: Deploy
                 Owner: AWS

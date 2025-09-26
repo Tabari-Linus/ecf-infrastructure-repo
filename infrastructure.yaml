@@ -696,7 +696,7 @@ Resources:
         - 'arn:aws:iam::aws:policy/AmazonECS_FullAccess'
         - 'arn:aws:iam::aws:policy/AWSCodeDeployFullAccess'
       Policies:
-        - PolicyName: CodePipelineArtifactsAccess
+        - PolicyName: S3ArtifactsAccess
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
@@ -708,10 +708,15 @@ Resources:
                   - s3:DeleteObject
                   - s3:ListBucket
                   - s3:GetBucketAcl
+                  - s3:GetBucketLocation
+                  - s3:GetBucketVersioning
                 Resource: 
                   - !Sub '${ArtifactsBucket.Arn}/*'
                   - !Sub '${ArtifactsBucket.Arn}'
-                  - !GetAtt ArtifactsBucket.Arn
+        - PolicyName: ECRFullAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
               - Effect: Allow
                 Action:
                   - ecr:GetAuthorizationToken
@@ -722,7 +727,14 @@ Resources:
                   - ecr:InitiateLayerUpload
                   - ecr:UploadLayerPart
                   - ecr:CompleteLayerUpload
+                  - ecr:DescribeRepositories
+                  - ecr:DescribeImages
+                  - ecr:ListImages
                 Resource: "*"
+        - PolicyName: IAMPassRoleAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
               - Effect: Allow
                 Action:
                   - iam:PassRole
@@ -730,11 +742,14 @@ Resources:
                   - !GetAtt ECSTaskExecutionRole.Arn
                   - !GetAtt ECSTaskRole.Arn
                   - !GetAtt CodeDeployRole.Arn
+        - PolicyName: CodePipelineTrigger
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
               - Effect: Allow
                 Action:
                   - codepipeline:StartPipelineExecution
                 Resource: !Sub 'arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${ProjectName}-pipeline'
-      Policies:
         - PolicyName: CloudFormationRead
           PolicyDocument:
             Version: '2012-10-17'

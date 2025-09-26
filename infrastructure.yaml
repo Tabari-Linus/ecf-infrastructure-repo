@@ -1030,6 +1030,9 @@ Resources:
                   - ecr:InitiateLayerUpload
                   - ecr:UploadLayerPart
                   - ecr:CompleteLayerUpload
+                  - ecr:DescribeImages
+                  - ecr:DescribeRepositories
+                  - ecr:ListImages
                 Resource: "*"
               - Effect: Allow
                 Action:

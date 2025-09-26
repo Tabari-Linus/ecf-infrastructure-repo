@@ -780,14 +780,29 @@ Resources:
           - 'Object Created'
         detail:
           bucket:
-            name: [!Ref ArtifactsBucket]
+            name: 
+              - !Ref ArtifactsBucket
           object:
-            key: ['build-artifact.zip']
+            key:
+              - prefix: ''
       State: ENABLED
       Targets:
         - Arn: !Sub 'arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${ProjectName}-pipeline'
           Id: CodePipelineTarget
           RoleArn: !GetAtt EventBridgeRole.Arn
+
+  CloudTrail:
+    Type: AWS::CloudTrail::Trail
+    Properties:
+      TrailName: !Sub '${ProjectName}-cloudtrail'
+      S3BucketName: !Ref ArtifactsBucket
+      IsMultiRegionTrail: false
+      IncludeGlobalServiceEvents: false
+      EnableLogFileValidation: true
+      IsLogging: true
+      CloudWatchLogsLogGroupArn: !Sub '/aws/cloudtrail/${ProjectName}'
+      CloudWatchLogsRoleArn: !GetAtt EventBridgeRole.Arn
+      
             
   # ECRPushEventRule:
   #   Type: AWS::Events::Rule

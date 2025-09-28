@@ -234,7 +234,7 @@ Resources:
   S3Bucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub ${EnvironmentName}-photos1-${AWS::AccountId}
+      BucketName: !Sub ${EnvironmentName}-photos2-${AWS::AccountId}
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         BlockPublicPolicy: true
@@ -378,17 +378,7 @@ Resources:
       PolicyDocument:
         Version: 2012-10-17
         Statement:
-          - Effect: Deny
-            Principal: "*"
-            Action: "s3:*"
-            Resource: 
-              - !GetAtt S3Bucket.Arn
-              - !Sub ${S3Bucket.Arn}/*
-            Condition:
-              "ForAnyValue:StringNotLike":
-                "aws:PrincipalArn": "arn:aws:iam::*:role/cloudformation-execution-role"
-              StringNotEqualsIfExists:
-                "aws:SourceVpce": !Ref S3GatewayEndpoint
+          # Allow object-level access only from the VPC endpoint
           - Effect: Allow
             Principal: "*"
             Action:
@@ -399,6 +389,15 @@ Resources:
             Condition:
               StringEquals:
                 "aws:SourceVpce": !Ref S3GatewayEndpoint
+          # Allow the account root user (and services like CloudFormation) full control
+          - Effect: Allow
+            Principal:
+              AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
+            Action:
+              - "s3:*"
+            Resource:
+              - !GetAtt S3Bucket.Arn
+              - !Sub ${S3Bucket.Arn}/*
 
   # ==================== RDS Database ====================
   DBSubnetGroup:

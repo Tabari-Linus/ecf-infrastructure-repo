@@ -624,9 +624,9 @@ Resources:
               Value: !Ref S3Bucket
           Secrets:
             - Name: DB_USERNAME
-              ValueFrom: !Sub ${RDSSecret}:username::
+              ValueFrom: !Sub "${RDSSecret}:username::"
             - Name: DB_PASSWORD
-              ValueFrom: !Sub ${RDSSecret}:password::
+              ValueFrom: !Sub "${RDSSecret}:password::"
           LogConfiguration:
             LogDriver: awslogs
             Options:

@@ -47,6 +47,11 @@ Parameters:
     MinValue: 1
     MaxValue: 10
 
+  GitHubRepository:
+    Type: String
+    Default: 'Tabari-Linus/photo-upload-app'
+    Description: 'GitHub repository in format owner/repo-name'
+
 Mappings:
   NetworkConfig:
     VPC:
@@ -66,6 +71,7 @@ Metadata:
           default: "Environment Configuration"
         Parameters:
           - EnvironmentName
+          - GitHubRepository
       - Label:
           default: "Database Configuration"
         Parameters:
@@ -224,7 +230,44 @@ Resources:
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGateway
 
-  # ==================== VPC Endpoints & Security Group (Order Corrected) ====================
+  # ==================== S3 Bucket (moved earlier to resolve dependencies) ====================
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${EnvironmentName}-photos-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: CleanupIncompleteUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+          - Id: ArchiveOldVersions
+            Status: Enabled
+            Prefix: ''
+            NoncurrentVersionExpirationInDays: 30
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-photos-bucket
+
+  # ==================== VPC Endpoints & Security Group ====================
+  VPCEndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for VPC endpoints
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 10.0.0.0/16
+
   S3GatewayEndpoint:
     Type: AWS::EC2::VPCEndpoint
     Properties:
@@ -242,21 +285,7 @@ Resources:
               - s3:GetObject
               - s3:PutObject
               - s3:DeleteObject
-            # NOTE: Resource dependency on S3Bucket exists here, but S3Bucket is defined later.
-            # Gateway endpoints do not cause the same unresolved dependency error as Interface endpoints.
-            # If deploying without S3Bucket, this policy might fail later, but for CloudFormation validation, 
-            # this is acceptable. We will proceed based on the original template's structure.
-            Resource: !Sub arn:aws:s3:::${S3Bucket}/* # Moved VPCEndpointSecurityGroup definition up to resolve the dependency error.
-  VPCEndpointSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Security group for VPC endpoints
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          CidrIp: 10.0.0.0/16
+            Resource: !Sub ${S3Bucket.Arn}/*
 
   ECRDkrEndpoint:
     Type: AWS::EC2::VPCEndpoint
@@ -269,7 +298,7 @@ Resources:
         - !Ref PrivateSubnet1
         - !Ref PrivateSubnet2
       SecurityGroupIds:
-        - !Ref VPCEndpointSecurityGroup # Now references a defined resource
+        - !Ref VPCEndpointSecurityGroup
 
   ECRApiEndpoint:
     Type: AWS::EC2::VPCEndpoint
@@ -282,7 +311,7 @@ Resources:
         - !Ref PrivateSubnet1
         - !Ref PrivateSubnet2
       SecurityGroupIds:
-        - !Ref VPCEndpointSecurityGroup # Now references a defined resource
+        - !Ref VPCEndpointSecurityGroup
 
   SecretsManagerEndpoint:
     Type: AWS::EC2::VPCEndpoint
@@ -295,9 +324,9 @@ Resources:
         - !Ref PrivateSubnet1
         - !Ref PrivateSubnet2
       SecurityGroupIds:
-        - !Ref VPCEndpointSecurityGroup # Now references a defined resource
+        - !Ref VPCEndpointSecurityGroup
 
-  # ==================== Security Groups (VPCEndpointSecurityGroup was moved) ====================
+  # ==================== Security Groups ====================
   ALBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -341,32 +370,7 @@ Resources:
           ToPort: 5432
           SourceSecurityGroupId: !Ref ECSSecurityGroup
 
-  # ==================== S3 Bucket ====================
-  S3Bucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Sub ${EnvironmentName}-photos-${AWS::AccountId}
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-      VersioningConfiguration:
-        Status: Enabled
-      LifecycleConfiguration:
-        Rules:
-          - Id: CleanupIncompleteUploads
-            Status: Enabled
-            AbortIncompleteMultipartUpload:
-              DaysAfterInitiation: 1
-          - Id: ArchiveOldVersions
-            Status: Enabled
-            Prefix: ''
-            NoncurrentVersionExpirationInDays: 30
-      Tags:
-        - Key: Name
-          Value: !Sub ${EnvironmentName}-photos-bucket
-
+  # ==================== S3 Bucket Policy ====================
   S3BucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
@@ -413,10 +417,10 @@ Resources:
       DBInstanceIdentifier: !Sub ${EnvironmentName}-postgres
       DBName: !Ref DatabaseName
       Engine: postgres
-      EngineVersion: 15.0
+      EngineVersion: '15.7'
       DBInstanceClass: !Ref DatabaseInstanceClass
-      MasterUsername: !Sub '{{resolve:secretsmanager:${RDSSecret}::username}}'
-      MasterUserPassword: !Sub '{{resolve:secretsmanager:${RDSSecret}::password}}'
+      MasterUsername: !Sub '{{resolve:secretsmanager:${RDSSecret}:SecretString:username}}'
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${RDSSecret}:SecretString:password}}'
       AllocatedStorage: 20
       MaxAllocatedStorage: 100
       StorageType: gp2
@@ -433,6 +437,38 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${EnvironmentName}-rds
+
+  # ==================== ECR Repository ====================
+  ECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub ${EnvironmentName}-repo
+      ImageTagMutability: MUTABLE
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep last 10 images",
+                "selection": {
+                  "tagStatus": "tagged",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 10
+                },
+                "action": {
+                  "type": "expire"
+                }
+              }
+            ]
+          }
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-ecr-repo
 
   # ==================== IAM Roles ====================
   ECSExecutionRole:
@@ -460,6 +496,7 @@ Resources:
                   - ecr:BatchGetImage
                   - logs:CreateLogStream
                   - logs:PutLogEvents
+                  - secretsmanager:GetSecretValue
                 Resource: "*"
 
   ECSTaskRole:
@@ -506,6 +543,13 @@ Resources:
         ExecuteCommandConfiguration:
           Logging: DEFAULT
 
+  # ==================== CloudWatch Logs ====================
+  CloudWatchLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /ecs/${EnvironmentName}
+      RetentionInDays: 30
+
   # ==================== ALB ====================
   ApplicationLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
@@ -520,16 +564,6 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${EnvironmentName}-alb
-
-  ALBListener:
-    Type: AWS::ElasticLoadBalancingV2::Listener
-    Properties:
-      LoadBalancerArn: !Ref ApplicationLoadBalancer
-      Port: 80
-      Protocol: HTTP
-      DefaultActions:
-        - Type: forward
-          TargetGroupArn: !Ref ALBTargetGroup
 
   ALBTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
@@ -549,6 +583,16 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${EnvironmentName}-target-group
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
 
   # ==================== ECS Task Definition ====================
   ECSTaskDefinition:
@@ -580,9 +624,9 @@ Resources:
               Value: !Ref S3Bucket
           Secrets:
             - Name: DB_USERNAME
-              ValueFrom: !Sub ${RDSSecret}:username
+              ValueFrom: !Sub ${RDSSecret}:username::
             - Name: DB_PASSWORD
-              ValueFrom: !Sub ${RDSSecret}:password
+              ValueFrom: !Sub ${RDSSecret}:password::
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -627,43 +671,6 @@ Resources:
           TargetGroupArn: !Ref ALBTargetGroup
       HealthCheckGracePeriodSeconds: 60
 
-  # ==================== CloudWatch Logs ====================
-  CloudWatchLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub /ecs/${EnvironmentName}
-      RetentionInDays: 30
-
-  # ==================== ECR Repository ====================
-  ECRRepository:
-    Type: AWS::ECR::Repository
-    Properties:
-      RepositoryName: !Sub ${EnvironmentName}-repo
-      ImageTagMutability: MUTABLE
-      ImageScanningConfiguration:
-        ScanOnPush: true
-      EncryptionConfiguration:
-        EncryptionType: AES256
-      Tags:
-        - Key: Name
-          Value: !Sub ${EnvironmentName}-ecr-repo
-
-  ECRRepositoryPolicy:
-    Type: AWS::ECR::RepositoryPolicy
-    Properties:
-      RepositoryName: !Ref ECRRepository
-      PolicyText:
-        Version: 2012-10-17
-        Statement:
-          - Sid: AllowECSAccess
-            Effect: Allow
-            Principal:
-              Service: ecs-tasks.amazonaws.com
-            Action:
-              - ecr:GetDownloadUrlForLayer
-              - ecr:BatchGetImage
-              - ecr:BatchCheckLayerAvailability
-
   # ==================== OIDC Provider for GitHub Actions ====================
   GitHubOIDCProvider:
     Type: AWS::IAM::OIDCProvider
@@ -689,7 +696,7 @@ Resources:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
               StringLike:
-                token.actions.githubusercontent.com:sub: !Sub repo:Tabari-Linus/photo-upload-app:*
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepository}:*
       Policies:
         - PolicyName: ECRPushAccess
           PolicyDocument:
@@ -698,6 +705,9 @@ Resources:
               - Effect: Allow
                 Action:
                   - ecr:GetAuthorizationToken
+                Resource: "*"
+              - Effect: Allow
+                Action:
                   - ecr:BatchCheckLayerAvailability
                   - ecr:GetDownloadUrlForLayer
                   - ecr:GetRepositoryPolicy
@@ -716,8 +726,14 @@ Resources:
                   - ecs:UpdateService
                   - ecs:DescribeTasks
                   - ecs:DescribeTaskDefinition
+                  - ecs:RegisterTaskDefinition
                 Resource: "*"
-
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource: 
+                  - !GetAtt ECSExecutionRole.Arn
+                  - !GetAtt ECSTaskRole.Arn
 
   # ==================== CodePipeline Resources ====================
   CodePipelineArtifactBucket:
@@ -772,52 +788,6 @@ Resources:
                   - ecs:UpdateService
                   - iam:PassRole
                 Resource: "*"
-              - Effect: Allow
-                Action:
-                  - events:DescribeRule
-                  - events:PutTargets
-                  - events:PutRule
-                Resource: "*"
-
-  CodeBuildProject:
-    Type: AWS::CodeBuild::Project
-    Properties:
-      Name: !Sub ${EnvironmentName}-codebuild
-      ServiceRole: !GetAtt CodeBuildRole.Arn
-      Artifacts:
-        Type: CODEPIPELINE
-      Environment:
-        Type: LINUX_CONTAINER
-        ComputeType: BUILD_GENERAL1_MEDIUM
-        Image: aws/codebuild/amazonlinux2-x86_64-standard:4.0
-        EnvironmentVariables:
-          - Name: ECR_REPOSITORY_URI
-            Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepository}
-          - Name: ECS_SERVICE
-            Value: !Ref ECSService
-          - Name: ECS_CLUSTER
-            Value: !Ref ECSCluster
-          - Name: CONTAINER_NAME
-            Value: !Sub ${EnvironmentName}-container
-      Source:
-        Type: CODEPIPELINE
-        BuildSpec: |
-          version: 0.2
-          phases:
-            pre_build:
-              commands:
-                - echo "Logging in to Amazon ECR..."
-                - aws --version
-                - echo $ECR_REPOSITORY_URI
-            build:
-              commands:
-                - echo "Build started on `date`"
-                - echo "No build commands needed - using existing ECR image"
-            post_build:
-              commands:
-                - echo "Build completed on `date`"
-          artifacts:
-            files: imagedefinitions.json
 
   CodeBuildRole:
     Type: AWS::IAM::Role
@@ -855,13 +825,90 @@ Resources:
               - Effect: Allow
                 Action:
                   - iam:PassRole
-                Resource: !GetAtt ECSTaskRole.Arn
+                Resource: 
+                  - !GetAtt ECSTaskRole.Arn
+                  - !GetAtt ECSExecutionRole.Arn
               - Effect: Allow
                 Action:
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: "*"
+
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub ${EnvironmentName}-codebuild
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_MEDIUM
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:4.0
+        PrivilegedMode: true
+        EnvironmentVariables:
+          - Name: ECR_REPOSITORY_URI
+            Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepository}
+          - Name: ECS_SERVICE
+            Value: !Ref ECSService
+          - Name: ECS_CLUSTER
+            Value: !Ref ECSCluster
+          - Name: CONTAINER_NAME
+            Value: !Sub ${EnvironmentName}-container
+          - Name: AWS_DEFAULT_REGION
+            Value: !Ref AWS::Region
+          - Name: AWS_ACCOUNT_ID
+            Value: !Ref AWS::AccountId
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            pre_build:
+              commands:
+                - echo "Logging in to Amazon ECR..."
+                - aws --version
+                - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_REPOSITORY_URI
+                - REPOSITORY_URI=$ECR_REPOSITORY_URI
+                - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+                - IMAGE_TAG=${COMMIT_HASH:=latest}
+            build:
+              commands:
+                - echo "Build started on `date`"
+                - echo "Building the Docker image..."
+                - docker build -t $REPOSITORY_URI:latest .
+                - docker tag $REPOSITORY_URI:latest $REPOSITORY_URI:$IMAGE_TAG
+            post_build:
+              commands:
+                - echo "Build completed on `date`"
+                - echo "Pushing the Docker images..."
+                - docker push $REPOSITORY_URI:latest
+                - docker push $REPOSITORY_URI:$IMAGE_TAG
+                - echo "Writing image definitions file..."
+                - printf '[{"name":"%s","imageUri":"%s"}]' $CONTAINER_NAME $REPOSITORY_URI:$IMAGE_TAG > imagedefinitions.json
+                - cat imagedefinitions.json
+          artifacts:
+            files: imagedefinitions.json
+
+  CodeDeployApplication:
+    Type: AWS::CodeDeploy::Application
+    Properties:
+      ApplicationName: !Sub ${EnvironmentName}-app
+      ComputePlatform: ECS
+
+  CodeDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codedeploy.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS
 
   DeploymentGroup:
     Type: AWS::CodeDeploy::DeploymentGroup
@@ -896,25 +943,6 @@ Resources:
             ProdTrafficRoute:
               ListenerArns:
                 - !Ref ALBListener
-
-  CodeDeployApplication:
-    Type: AWS::CodeDeploy::Application
-    Properties:
-      ApplicationName: !Sub ${EnvironmentName}-app
-      ComputePlatform: ECS
-
-  CodeDeployRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: codedeploy.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS
 
   CodePipeline:
     Type: AWS::CodePipeline::Pipeline
@@ -970,6 +998,26 @@ Resources:
               RunOrder: 1
 
   # ==================== EventBridge Rule for ECR Push ====================
+  EventBridgeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: EventBridgeCodePipelineAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - codepipeline:StartPipelineExecution
+                Resource: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${CodePipeline}
+
   ECRImagePushRule:
     Type: AWS::Events::Rule
     Properties:
@@ -992,26 +1040,6 @@ Resources:
         - Arn: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${CodePipeline}
           Id: CodePipelineTarget
           RoleArn: !GetAtt EventBridgeRole.Arn
-
-  EventBridgeRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: events.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: EventBridgeCodePipelineAccess
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Effect: Allow
-                Action:
-                  - codepipeline:StartPipelineExecution
-                Resource: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${CodePipeline}
 
 Outputs:
   VPCId:
@@ -1073,3 +1101,9 @@ Outputs:
     Value: !Ref CodeDeployApplication
     Export:
       Name: !Sub ${EnvironmentName}-CodeDeployApplicationName
+
+  GitHubActionsRoleArn:
+    Description: GitHub Actions IAM Role ARN
+    Value: !GetAtt GitHubActionsRole.Arn
+    Export:
+      Name: !Sub ${EnvironmentName}-GitHubActionsRoleArn

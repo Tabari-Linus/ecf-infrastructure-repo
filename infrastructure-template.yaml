@@ -740,6 +740,9 @@ Resources:
                   - ecs:DescribeTasks
                   - ecs:DescribeTaskDefinition
                   - ecs:RegisterTaskDefinition
+                  - ecs:ListClusters
+                  - ecs:ListServices
+                  - ecs:DescribeClusters
                 Resource: "*"
               - Effect: Allow
                 Action:

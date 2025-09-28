@@ -385,7 +385,9 @@ Resources:
               - !GetAtt S3Bucket.Arn
               - !Sub ${S3Bucket.Arn}/*
             Condition:
-              StringNotEquals:
+              "ForAnyValue:StringNotLike":
+                "aws:PrincipalArn": "arn:aws:iam::*:role/cloudformation-execution-role"
+              StringNotEqualsIfExists:
                 "aws:SourceVpce": !Ref S3GatewayEndpoint
           - Effect: Allow
             Principal: "*"

@@ -47,7 +47,6 @@ Parameters:
     MinValue: 1
     MaxValue: 10
 
-  # Remove DatabaseUsername and DatabasePassword parameters since they'll be auto-generated
 Mappings:
   NetworkConfig:
     VPC:
@@ -225,7 +224,7 @@ Resources:
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGateway
 
-  # ==================== VPC Endpoints ====================
+  # ==================== VPC Endpoints & Security Group (Order Corrected) ====================
   S3GatewayEndpoint:
     Type: AWS::EC2::VPCEndpoint
     Properties:
@@ -243,7 +242,21 @@ Resources:
               - s3:GetObject
               - s3:PutObject
               - s3:DeleteObject
-            Resource: !Sub arn:aws:s3:::${S3Bucket}/*
+            # NOTE: Resource dependency on S3Bucket exists here, but S3Bucket is defined later.
+            # Gateway endpoints do not cause the same unresolved dependency error as Interface endpoints.
+            # If deploying without S3Bucket, this policy might fail later, but for CloudFormation validation, 
+            # this is acceptable. We will proceed based on the original template's structure.
+            Resource: !Sub arn:aws:s3:::${S3Bucket}/* # Moved VPCEndpointSecurityGroup definition up to resolve the dependency error.
+  VPCEndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for VPC endpoints
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 10.0.0.0/16
 
   ECRDkrEndpoint:
     Type: AWS::EC2::VPCEndpoint
@@ -256,7 +269,7 @@ Resources:
         - !Ref PrivateSubnet1
         - !Ref PrivateSubnet2
       SecurityGroupIds:
-        - !Ref VpcEndpointSecurityGroup
+        - !Ref VPCEndpointSecurityGroup # Now references a defined resource
 
   ECRApiEndpoint:
     Type: AWS::EC2::VPCEndpoint
@@ -269,7 +282,7 @@ Resources:
         - !Ref PrivateSubnet1
         - !Ref PrivateSubnet2
       SecurityGroupIds:
-        - !Ref VpcEndpointSecurityGroup
+        - !Ref VPCEndpointSecurityGroup # Now references a defined resource
 
   SecretsManagerEndpoint:
     Type: AWS::EC2::VPCEndpoint
@@ -282,20 +295,9 @@ Resources:
         - !Ref PrivateSubnet1
         - !Ref PrivateSubnet2
       SecurityGroupIds:
-        - !Ref VpcEndpointSecurityGroup
+        - !Ref VPCEndpointSecurityGroup # Now references a defined resource
 
-  # ==================== Security Groups ====================
-  VPCEndpointSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Security group for VPC endpoints
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          CidrIp: 10.0.0.0/16
-
+  # ==================== Security Groups (VPCEndpointSecurityGroup was moved) ====================
   ALBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -662,9 +664,7 @@ Resources:
               - ecr:BatchGetImage
               - ecr:BatchCheckLayerAvailability
 
-  # Add this to your infrastructure-template.yaml in the Resources section
-
-# ==================== OIDC Provider for GitHub Actions ====================
+  # ==================== OIDC Provider for GitHub Actions ====================
   GitHubOIDCProvider:
     Type: AWS::IAM::OIDCProvider
     Properties:
@@ -718,8 +718,6 @@ Resources:
                   - ecs:DescribeTaskDefinition
                 Resource: "*"
 
-
-  # Add to your existing CloudFormation template
 
   # ==================== CodePipeline Resources ====================
   CodePipelineArtifactBucket:
@@ -1014,6 +1012,7 @@ Resources:
                 Action:
                   - codepipeline:StartPipelineExecution
                 Resource: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${CodePipeline}
+
 Outputs:
   VPCId:
     Description: VPC ID

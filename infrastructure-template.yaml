@@ -373,6 +373,7 @@ Resources:
 
   RDSInstance:
     Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
     Properties:
       DBInstanceIdentifier: !Sub ${EnvironmentName}-postgres
       DBName: !Ref DatabaseName
@@ -477,6 +478,7 @@ Resources:
   GitHubActionsRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Sub ${EnvironmentName}-github-actions-role
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -518,7 +520,12 @@ Resources:
                 Action:
                   - s3:PutObject
                   - s3:GetObject
-                Resource: !Sub ${CodePipelineArtifactBucket.Arn}/*
+                  - s3:GetBucketAcl
+                  - s3:GetBucketLocation
+                  - s3:ListBucket
+                Resource: 
+                  - !Sub ${CodePipelineArtifactBucket.Arn}/*
+                  - !GetAtt CodePipelineArtifactBucket.Arn
               - Effect: Allow
                 Action: iam:PassRole
                 Resource:

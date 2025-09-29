@@ -230,7 +230,7 @@ Resources:
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGateway
 
-  # ==================== S3 Bucket (moved earlier to resolve dependencies) ====================
+  # ==================== S3 Bucket ====================
   S3Bucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -313,6 +313,19 @@ Resources:
       SecurityGroupIds:
         - !Ref VPCEndpointSecurityGroup
 
+  CloudWatchLogsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.logs
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      SecurityGroupIds:
+        - !Ref VPCEndpointSecurityGroup
+
   SecretsManagerEndpoint:
     Type: AWS::EC2::VPCEndpoint
     Properties:
@@ -378,7 +391,6 @@ Resources:
       PolicyDocument:
         Version: 2012-10-17
         Statement:
-          # Allow object-level access only from the VPC endpoint
           - Effect: Allow
             Principal: "*"
             Action:
@@ -389,7 +401,16 @@ Resources:
             Condition:
               StringEquals:
                 "aws:SourceVpce": !Ref S3GatewayEndpoint
-          # Allow the account root user (and services like CloudFormation) full control
+          - Effect: Allow
+            Principal:
+              AWS: 
+                - !GetAtt ECSTaskRole.Arn
+                - !GetAtt ECSExecutionRole.Arn
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:DeleteObject
+            Resource: !Sub ${S3Bucket.Arn}/*
           - Effect: Allow
             Principal:
               AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
@@ -515,7 +536,9 @@ Resources:
                   - ecr:DescribeRepositories
                   - ecr:ListImages
                   - ecr:DescribeImages
-                Resource: !Sub arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${ECRRepository}
+                Resource: 
+                  - !Sub arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${ECRRepository}
+                  - !Sub arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/*
               - Effect: Allow
                 Action:
                   - logs:CreateLogGroup
@@ -650,6 +673,8 @@ Resources:
               Value: !Ref AWS::Region
             - Name: S3_BUCKET_NAME
               Value: !Ref S3Bucket
+            - Name: AWS_DEFAULT_REGION
+              Value: !Ref AWS::Region
           Secrets:
             - Name: DB_USERNAME
               ValueFrom: !Sub "${RDSSecret}:username::"
@@ -668,7 +693,7 @@ Resources:
             Interval: 30
             Timeout: 5
             Retries: 3
-            StartPeriod: 60
+            StartPeriod: 120
 
   # ==================== ECS Service ====================
   ECSService:

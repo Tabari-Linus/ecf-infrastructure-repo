@@ -29,6 +29,9 @@ Parameters:
   GitHubRepository:
     Type: String
     Default: 'Tabari-Linus/photo-upload-app'
+  GithubBranch:
+    Type: String
+    Default: 'main'
 
 Mappings:
   NetworkConfig:
@@ -485,13 +488,16 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              Federated: !Ref GitHubOIDCProvider
+              Federated: !Sub arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
               StringLike:
-                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepository}:*
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepository}:ref:refs/heads/${GithubBranch}
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonECS_FullAccess
+        - arn:aws:iam::aws:policy/AWSCodeDeployFullAccess
       Policies:
         - PolicyName: GitHubActionsPolicy
           PolicyDocument:
@@ -515,9 +521,6 @@ Resources:
                   - ecs:RegisterTaskDefinition
                   - ecs:ListTasks
                   - ecs:DescribeClusters
-                  - rds:DescribeDBInstances
-                  - secretsmanager:GetSecretValue
-                  - secretsmanager:ListSecrets
                 Resource: "*"
               - Effect: Allow
                 Action:
@@ -538,6 +541,14 @@ Resources:
                 Resource:
                   - !GetAtt ECSExecutionRole.Arn
                   - !GetAtt ECSTaskRole.Arn
+                  - !GetAtt CodeDeployRole.Arn
+
+              # - Effect: Allow
+              #   Action:
+              #     - rds:DescribeDBInstances
+              #     - secretsmanager:GetSecretValue
+              #     - secretsmanager:ListSecrets
+              #   Resource: "*"
 
   CodePipelineRole:
     Type: AWS::IAM::Role

@@ -543,13 +543,12 @@ Resources:
                   - !GetAtt ECSExecutionRole.Arn
                   - !GetAtt ECSTaskRole.Arn
                   - !GetAtt CodeDeployRole.Arn
-
-              # - Effect: Allow
-              #   Action:
-              #     - rds:DescribeDBInstances
-              #     - secretsmanager:GetSecretValue
-              #     - secretsmanager:ListSecrets
-              #   Resource: "*"
+              - Effect: Allow
+                Action:
+                  - rds:DescribeDBInstances
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:ListSecrets
+                Resource: "*"
 
   CodePipelineRole:
     Type: AWS::IAM::Role
@@ -727,7 +726,7 @@ Resources:
           HealthCheck:
             Command:
               - CMD-SHELL
-              - curl -f http://localhost:8080/health || exit 1
+              - curl -f http://localhost:8080/ || exit 1
             Interval: 30
             Timeout: 5
             Retries: 3

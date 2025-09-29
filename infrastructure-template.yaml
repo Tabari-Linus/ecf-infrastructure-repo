@@ -571,6 +571,18 @@ Resources:
                   - s3:GetObject
                   - s3:DeleteObject
                 Resource: !Sub ${S3Bucket.Arn}/*
+        - PolicyName: ECRAccessPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                  - ecr:BatchCheckLayerAvailability
+                Resource: 
+                  - !Sub arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${ECRRepository}
+                  - !Sub arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/*
         - PolicyName: SecretsManagerAccess
           PolicyDocument:
             Version: 2012-10-17

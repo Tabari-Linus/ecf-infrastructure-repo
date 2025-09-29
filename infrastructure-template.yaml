@@ -1,62 +1,34 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Photo Uploader Lab - Complete Infrastructure Stack with Secrets Manager'
+Description: 'Photo Uploader - Complete Infrastructure with CodePipeline'
 
 Parameters:
   EnvironmentName:
     Type: String
     Default: 'photo-uploader-prod'
-    Description: 'Environment name used for resource naming'
-  
   DatabaseName:
     Type: String
     Default: 'photoapp'
-    Description: 'PostgreSQL database name'
-  
   DatabaseInstanceClass:
     Type: String
     Default: 'db.t3.micro'
-    Description: 'RDS instance class'
-    AllowedValues:
-      - 'db.t3.micro'
-      - 'db.t3.small'
-      - 'db.t3.medium'
-  
+    AllowedValues: ['db.t3.micro', 'db.t3.small', 'db.t3.medium']
   ContainerCpu:
     Type: Number
     Default: 256
-    Description: 'ECS Task CPU units'
-    AllowedValues:
-      - 256
-      - 512
-      - 1024
-  
+    AllowedValues: [256, 512, 1024]
   ContainerMemory:
     Type: Number
     Default: 512
-    Description: 'ECS Task Memory (MB)'
-    AllowedValues:
-      - 512
-      - 1024
-      - 2048
-
+    AllowedValues: [512, 1024, 2048]
   ContainerPort:
     Type: Number
     Default: 8080
-    Description: 'Container port for the application'
-    MinValue: 1
-    MaxValue: 65535
-  
   ServiceDesiredCount:
     Type: Number
     Default: 2
-    Description: 'Number of ECS tasks to run'
-    MinValue: 1
-    MaxValue: 10
-
   GitHubRepository:
     Type: String
     Default: 'Tabari-Linus/photo-upload-app'
-    Description: 'GitHub repository in format owner/repo-name'
 
 Mappings:
   NetworkConfig:
@@ -70,47 +42,21 @@ Mappings:
       Database1: '10.0.20.0/24'
       Database2: '10.0.21.0/24'
 
-Metadata:
-  AWS::CloudFormation::Interface:
-    ParameterGroups:
-      - Label:
-          default: "Environment Configuration"
-        Parameters:
-          - EnvironmentName
-          - GitHubRepository
-      - Label:
-          default: "Database Configuration"
-        Parameters:
-          - DatabaseName
-          - DatabaseInstanceClass
-      - Label:
-          default: "ECS Configuration"
-        Parameters:
-          - ContainerCpu
-          - ContainerMemory
-          - ServiceDesiredCount
-
 Conditions:
   HasMoreThanOneAZ: !Not [!Equals [!Ref 'AWS::Region', 'us-east-1']]
 
 Resources:
-  # ==================== Secrets Manager Secret ====================
   RDSSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
       Name: !Sub ${EnvironmentName}/rds/credentials
-      Description: RDS database credentials for Photo Uploader App
       GenerateSecretString:
-        SecretStringTemplate: !Sub '{"username": "photoappuser"}'
+        SecretStringTemplate: '{"username": "photoappuser"}'
         GenerateStringKey: "password"
         PasswordLength: 16
         ExcludeCharacters: '"@/\'
         ExcludePunctuation: true
-      Tags:
-        - Key: Name
-          Value: !Sub ${EnvironmentName}-rds-secret
 
-  # ==================== VPC & Networking ====================
   VPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -134,7 +80,6 @@ Resources:
       VpcId: !Ref VPC
       InternetGatewayId: !Ref InternetGateway
 
-  # ==================== Subnets ====================
   PublicSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
@@ -144,7 +89,7 @@ Resources:
       MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
-          Value: !Sub ${EnvironmentName}-public-subnet-1
+          Value: !Sub ${EnvironmentName}-public-1
 
   PublicSubnet2:
     Type: AWS::EC2::Subnet
@@ -155,7 +100,7 @@ Resources:
       MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
-          Value: !Sub ${EnvironmentName}-public-subnet-2
+          Value: !Sub ${EnvironmentName}-public-2
 
   PrivateSubnet1:
     Type: AWS::EC2::Subnet
@@ -165,7 +110,7 @@ Resources:
       CidrBlock: !FindInMap [NetworkConfig, Subnets, Private1]
       Tags:
         - Key: Name
-          Value: !Sub ${EnvironmentName}-private-subnet-1
+          Value: !Sub ${EnvironmentName}-private-1
 
   PrivateSubnet2:
     Type: AWS::EC2::Subnet
@@ -175,7 +120,7 @@ Resources:
       CidrBlock: !FindInMap [NetworkConfig, Subnets, Private2]
       Tags:
         - Key: Name
-          Value: !Sub ${EnvironmentName}-private-subnet-2
+          Value: !Sub ${EnvironmentName}-private-2
 
   DatabaseSubnet1:
     Type: AWS::EC2::Subnet
@@ -185,7 +130,7 @@ Resources:
       CidrBlock: !FindInMap [NetworkConfig, Subnets, Database1]
       Tags:
         - Key: Name
-          Value: !Sub ${EnvironmentName}-db-subnet-1
+          Value: !Sub ${EnvironmentName}-db-1
 
   DatabaseSubnet2:
     Type: AWS::EC2::Subnet
@@ -195,9 +140,8 @@ Resources:
       CidrBlock: !FindInMap [NetworkConfig, Subnets, Database2]
       Tags:
         - Key: Name
-          Value: !Sub ${EnvironmentName}-db-subnet-2
+          Value: !Sub ${EnvironmentName}-db-2
 
-  # ==================== Route Tables ====================
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -222,7 +166,6 @@ Resources:
         - Key: Name
           Value: !Sub ${EnvironmentName}-private-rt-2
 
-  # ==================== Route Table Associations ====================
   PublicSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
@@ -247,7 +190,6 @@ Resources:
       SubnetId: !Ref PrivateSubnet2
       RouteTableId: !Ref PrivateRouteTable2
 
-  # ==================== Routes ====================
   PublicRoute:
     Type: AWS::EC2::Route
     DependsOn: VPCGatewayAttachment
@@ -256,7 +198,6 @@ Resources:
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGateway
 
-  # ==================== S3 Bucket ====================
   S3Bucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -268,32 +209,68 @@ Resources:
         RestrictPublicBuckets: true
       VersioningConfiguration:
         Status: Enabled
-      LifecycleConfiguration:
-        Rules:
-          - Id: CleanupIncompleteUploads
-            Status: Enabled
-            AbortIncompleteMultipartUpload:
-              DaysAfterInitiation: 1
-          - Id: ArchiveOldVersions
-            Status: Enabled
-            Prefix: ''
-            NoncurrentVersionExpirationInDays: 30
-      Tags:
-        - Key: Name
-          Value: !Sub ${EnvironmentName}-photos-bucket
 
-  # ==================== VPC Endpoints & Security Group ====================
+  CodePipelineArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${EnvironmentName}-pipeline-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
+
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ALB Security Group
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ECS Security Group
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref ContainerPort
+          ToPort: !Ref ContainerPort
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: RDS Security Group
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref ECSSecurityGroup
+
   VPCEndpointSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Security group for VPC endpoints
+      GroupDescription: VPC Endpoint Security Group
       VpcId: !Ref VPC
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 443
           ToPort: 443
-          sourceSecurityGroupId: !Ref ECSSecurityGroup
-
+          SourceSecurityGroupId: !Ref ECSSecurityGroup
 
   S3GatewayEndpoint:
     Type: AWS::EC2::VPCEndpoint
@@ -304,20 +281,6 @@ Resources:
       RouteTableIds:
         - !Ref PrivateRouteTable1
         - !Ref PrivateRouteTable2
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal: "*"
-            Action:
-              - s3:GetObject
-              - s3:PutObject
-              - s3:DeleteObject
-            Resource: !Sub ${S3Bucket.Arn}/*
-      PrivateDnsEnabled: true
-      SecurityGroupIds:
-        - !Ref VPCEndpointSecurityGroup
-
 
   ECRDkrEndpoint:
     Type: AWS::EC2::VPCEndpoint
@@ -371,47 +334,6 @@ Resources:
       SecurityGroupIds:
         - !Ref VPCEndpointSecurityGroup
 
-  # ==================== Security Groups ====================
-  ALBSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Security group for ALB
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          CidrIp: 0.0.0.0/0
-
-  ECSSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Security group for ECS tasks
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: !Ref ContainerPort
-          ToPort: !Ref ContainerPort
-          SourceSecurityGroupId: !Ref ALBSecurityGroup
-      SecurityGroupEgress:
-        - IpProtocol: -1
-          FromPort: -1
-          ToPort: -1
-          CidrIp: 0.0.0.0/0
-
-  RDSSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupName: !Sub ${EnvironmentName}-rds-sg
-      GroupDescription: Security group for RDS
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 5432
-          ToPort: 5432
-          SourceSecurityGroupId: !Ref ECSSecurityGroup
-
-  # ==================== S3 Bucket Policy ====================
   S3BucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
@@ -428,10 +350,10 @@ Resources:
             Resource: !Sub ${S3Bucket.Arn}/*
             Condition:
               StringEquals:
-                "aws:SourceVpce": !Ref S3GatewayEndpoint
+                aws:SourceVpce: !Ref S3GatewayEndpoint
           - Effect: Allow
             Principal:
-              AWS: 
+              AWS:
                 - !GetAtt ECSTaskRole.Arn
                 - !GetAtt ECSExecutionRole.Arn
             Action:
@@ -439,31 +361,18 @@ Resources:
               - s3:PutObject
               - s3:DeleteObject
             Resource: !Sub ${S3Bucket.Arn}/*
-          - Effect: Allow
-            Principal:
-              AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
-            Action:
-              - "s3:*"
-            Resource:
-              - !GetAtt S3Bucket.Arn
-              - !Sub ${S3Bucket.Arn}/*
 
-  # ==================== RDS Database ====================
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
       DBSubnetGroupName: !Sub ${EnvironmentName}-db-subnet-group
-      DBSubnetGroupDescription: Subnet group for RDS instance
+      DBSubnetGroupDescription: Subnet group for RDS
       SubnetIds:
         - !Ref DatabaseSubnet1
         - !Ref DatabaseSubnet2
-      Tags:
-        - Key: Name
-          Value: !Sub ${EnvironmentName}-db-subnet-group
 
   RDSInstance:
     Type: AWS::RDS::DBInstance
-    DependsOn: RDSSecret
     Properties:
       DBInstanceIdentifier: !Sub ${EnvironmentName}-postgres
       DBName: !Ref DatabaseName
@@ -482,16 +391,7 @@ Resources:
       VPCSecurityGroups:
         - !GetAtt RDSSecurityGroup.GroupId
       BackupRetentionPeriod: 7
-      PreferredBackupWindow: '03:00-04:00'
-      PreferredMaintenanceWindow: 'sun:04:00-sun:04:30'
-      MultiAZ: true
-      EnablePerformanceInsights: true
-      PerformanceInsightsRetentionPeriod: 7
-      Tags:
-        - Key: Name
-          Value: !Sub ${EnvironmentName}-rds
 
-  # ==================== ECR Repository ====================
   ECRRepository:
     Type: AWS::ECR::Repository
     Properties:
@@ -499,30 +399,7 @@ Resources:
       ImageTagMutability: MUTABLE
       ImageScanningConfiguration:
         ScanOnPush: true
-      EncryptionConfiguration:
-        EncryptionType: AES256
-      LifecyclePolicy:
-        LifecyclePolicyText: |
-          {
-            "rules": [{
-                "rulePriority": 1,
-                "description": "Keep last 10 images",
-                "selection": {
-                  "tagStatus": "any",
-                  "countType": "imageCountMoreThan",
-                  "countNumber": 10
-                },
-                "action": {
-                  "type": "expire"
-                }
-              }
-            ]
-          }
-      Tags:
-        - Key: Name
-          Value: !Sub ${EnvironmentName}-ecr-repo
 
-  # ==================== IAM Roles ====================
   ECSExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -536,35 +413,12 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
       Policies:
-        - PolicyName: ECSExecutionPolicy
+        - PolicyName: SecretsAccess
           PolicyDocument:
             Version: 2012-10-17
             Statement:
               - Effect: Allow
-                Action:
-                  - ecr:GetAuthorizationToken
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - ecr:BatchCheckLayerAvailability
-                  - ecr:GetDownloadUrlForLayer
-                  - ecr:BatchGetImage
-                  - ecr:GetRepositoryPolicy
-                  - ecr:DescribeRepositories
-                  - ecr:ListImages
-                  - ecr:DescribeImages
-                Resource: 
-                  - !Sub arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${ECRRepository}
-                  - !Sub arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/*
-              - Effect: Allow
-                Action:
-                  - logs:CreateLogGroup
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - secretsmanager:GetSecretValue
+                Action: secretsmanager:GetSecretValue
                 Resource: !Ref RDSSecret
 
   ECSTaskRole:
@@ -578,7 +432,7 @@ Resources:
               Service: ecs-tasks.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: S3AccessPolicy
+        - PolicyName: S3Access
           PolicyDocument:
             Version: 2012-10-17
             Statement:
@@ -588,40 +442,169 @@ Resources:
                   - s3:GetObject
                   - s3:DeleteObject
                 Resource: !Sub ${S3Bucket.Arn}/*
-        - PolicyName: ECRAccessPolicy
+
+  AutoScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: application-autoscaling.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ScalingPolicy
           PolicyDocument:
             Version: 2012-10-17
             Statement:
               - Effect: Allow
                 Action:
+                  - ecs:DescribeServices
+                  - ecs:UpdateService
+                  - cloudwatch:*
+                Resource: "*"
+
+  GitHubOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+
+  GitHubActionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOIDCProvider
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepository}:*
+      Policies:
+        - PolicyName: GitHubActionsPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchCheckLayerAvailability
                   - ecr:GetDownloadUrlForLayer
                   - ecr:BatchGetImage
-                  - ecr:BatchCheckLayerAvailability
-                Resource: 
-                  - !Sub arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${ECRRepository}
-                  - !Sub arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/*
-        - PolicyName: SecretsManagerAccess
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                  - ecr:PutImage
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ecs:DescribeServices
+                  - ecs:DescribeTaskDefinition
+                  - ecs:RegisterTaskDefinition
+                  - rds:DescribeDBInstances
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:ListSecrets
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub ${CodePipelineArtifactBucket.Arn}/*
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource:
+                  - !GetAtt ECSExecutionRole.Arn
+                  - !GetAtt ECSTaskRole.Arn
+
+  CodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: PipelinePolicy
           PolicyDocument:
             Version: 2012-10-17
             Statement:
               - Effect: Allow
                 Action:
-                  - secretsmanager:GetSecretValue
-                Resource: !Ref RDSSecret
+                  - s3:*
+                  - codedeploy:*
+                  - ecs:*
+                Resource: "*"
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource:
+                  - !GetAtt ECSExecutionRole.Arn
+                  - !GetAtt ECSTaskRole.Arn
+                  - !GetAtt CodeDeployRole.Arn
 
-  # ==================== ECS Cluster ====================
+  CodeDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codedeploy.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS
+      Policies:
+        - PolicyName: DeployPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecs:*
+                  - elasticloadbalancing:*
+                  - s3:GetObject
+                Resource: "*"
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource:
+                  - !GetAtt ECSExecutionRole.Arn
+                  - !GetAtt ECSTaskRole.Arn
+
+  EventBridgeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: TriggerPipeline
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: codepipeline:StartPipelineExecution
+                Resource: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${CodePipeline}
+
   ECSCluster:
     Type: AWS::ECS::Cluster
     Properties:
       ClusterName: !Sub ${EnvironmentName}-cluster
-      CapacityProviders:
-        - FARGATE
-      DefaultCapacityProviderStrategy:
-        - CapacityProvider: FARGATE
-          Weight: 1
-      Configuration:
-        ExecuteCommandConfiguration:
-          Logging: DEFAULT
 
   CloudWatchLogGroup:
     Type: AWS::Logs::LogGroup
@@ -629,7 +612,6 @@ Resources:
       LogGroupName: !Sub /ecs/${EnvironmentName}
       RetentionInDays: 30
 
-  # ==================== ALB ====================
   ApplicationLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
@@ -640,10 +622,6 @@ Resources:
         - !Ref PublicSubnet2
       SecurityGroups:
         - !Ref ALBSecurityGroup
-      Type: application
-      Tags:
-        - Key: Name
-          Value: !Sub ${EnvironmentName}-alb
 
   ALBTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
@@ -658,12 +636,6 @@ Resources:
       HealthCheckTimeoutSeconds: 5
       HealthyThresholdCount: 2
       UnhealthyThresholdCount: 3
-      HealthCheckEnabled: true
-      Matcher:
-        HttpCode: 200
-      Tags:
-        - Key: Name
-          Value: !Sub ${EnvironmentName}-target-group
 
   ALBTargetGroupGreen:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
@@ -678,10 +650,6 @@ Resources:
       HealthCheckTimeoutSeconds: 5
       HealthyThresholdCount: 2
       UnhealthyThresholdCount: 3
-      HealthCheckEnabled: true
-      Matcher:
-        HttpCode: 200
-
 
   ALBListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
@@ -693,10 +661,8 @@ Resources:
         - Type: forward
           TargetGroupArn: !Ref ALBTargetGroup
 
-  # ==================== ECS Task Definition ====================
   ECSTaskDefinition:
     Type: AWS::ECS::TaskDefinition
-    DependsOn: CloudWatchLogGroup
     Properties:
       Family: !Sub ${EnvironmentName}-task
       NetworkMode: awsvpc
@@ -712,7 +678,6 @@ Resources:
           Essential: true
           PortMappings:
             - ContainerPort: !Ref ContainerPort
-              Protocol: tcp
           Environment:
             - Name: SPRING_PROFILES_ACTIVE
               Value: production
@@ -722,13 +687,11 @@ Resources:
               Value: !Ref AWS::Region
             - Name: S3_BUCKET_NAME
               Value: !Ref S3Bucket
-            - Name: AWS_DEFAULT_REGION
-              Value: !Ref AWS::Region
           Secrets:
             - Name: DB_USERNAME
-              ValueFrom: !Sub "${RDSSecret}:SecretString:username"
+              ValueFrom: !Sub ${RDSSecret}:username::
             - Name: DB_PASSWORD
-              ValueFrom: !Sub "${RDSSecret}:SecretString:password"
+              ValueFrom: !Sub ${RDSSecret}:password::
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -744,7 +707,6 @@ Resources:
             Retries: 3
             StartPeriod: 120
 
-  # ==================== ECS Service ====================
   ECSService:
     Type: AWS::ECS::Service
     DependsOn:
@@ -756,9 +718,6 @@ Resources:
       TaskDefinition: !Ref ECSTaskDefinition
       DesiredCount: !Ref ServiceDesiredCount
       LaunchType: FARGATE
-      DeploymentConfiguration:
-        MaximumPercent: 200
-        MinimumHealthyPercent: 50
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: DISABLED
@@ -774,322 +733,27 @@ Resources:
       HealthCheckGracePeriodSeconds: 60
       DeploymentController:
         Type: CODE_DEPLOY
-      Tags:
-        - Key: Name
-          Value: !Sub ${EnvironmentName}-service
-
-  AutoScalingRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: appplication-autoscaling.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: ECSServiceScalingPolicy
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Effect: Allow
-                Action:
-                  - application-autoscaling:*
-                  - cloudwatch:DescribeAlarms
-                  - cloudwatch:PutMetricAlarm
-                  - cloudwatch:GetMetricStatistics
-                  - cloudwatch:SetAlarmState
-                  - cloudwatch:DeleteAlarms
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - ecs:DescribeServices
-                  - ecs:UpdateService
-                  - ecs:DescribeTaskDefinition
-                  - ecs:DescribeTasks
-                  - ecs:ListTasks
-                  - iam:PassRole
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - application-autoscaling:*
-                Resource: "*"
 
   ECSServiceScalingTarget:
     Type: AWS::ApplicationAutoScaling::ScalableTarget
-    DependsOn: ECSService
     Properties:
       MaxCapacity: 10
       MinCapacity: 2
-      ResourceId: !GetAtt ECSService.ServiceArn
-      RoleArn: !GettAtt AutoScalingRole.Arn
+      ResourceId: !Sub service/${ECSCluster}/${ECSService.Name}
+      RoleArn: !GetAtt AutoScalingRole.Arn
       ScalableDimension: ecs:service:DesiredCount
       ServiceNamespace: ecs
 
   ECSServiceScalingPolicy:
     Type: AWS::ApplicationAutoScaling::ScalingPolicy
-    DependsOn: ECSServiceScalingTarget
     Properties:
-      PolicyName: !Sub ${EnvironmentName}-scaling-policy
+      PolicyName: !Sub ${EnvironmentName}-scaling
       PolicyType: TargetTrackingScaling
       ScalingTargetId: !Ref ECSServiceScalingTarget
       TargetTrackingScalingPolicyConfiguration:
         TargetValue: 70.0
-        ScaleInCooldown: 60
-        ScaleOutCooldown: 60
         PredefinedMetricSpecification:
           PredefinedMetricType: ECSServiceAverageCPUUtilization
-
-  # ==================== OIDC Provider for GitHub Actions ====================
-  GitHubOIDCProvider:
-    Type: AWS::IAM::OIDCProvider
-    Properties:
-      Url: https://token.actions.githubusercontent.com
-      ClientIdList:
-        - sts.amazonaws.com
-      ThumbprintList:
-        - 6938fd4d98bab03faadb97b34396831e3780aea1
-
-  GitHubActionsRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub ${EnvironmentName}-github-actions-role
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              Federated: !Ref GitHubOIDCProvider
-            Action: sts:AssumeRoleWithWebIdentity
-            Condition:
-              StringEquals:
-                token.actions.githubusercontent.com:aud: sts.amazonaws.com
-              StringLike:
-                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepository}:*
-      Policies:
-        - PolicyName: ECRPushAccess
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Effect: Allow
-                Action:
-                  - ecr:GetAuthorizationToken
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - ecr:BatchCheckLayerAvailability
-                  - ecr:GetDownloadUrlForLayer
-                  - ecr:GetRepositoryPolicy
-                  - ecr:DescribeRepositories
-                  - ecr:ListImages
-                  - ecr:DescribeImages
-                  - ecr:BatchGetImage
-                  - ecr:InitiateLayerUpload
-                  - ecr:UploadLayerPart
-                  - ecr:CompleteLayerUpload
-                  - ecr:PutImage
-                Resource: !Sub arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${ECRRepository}
-              - Effect: Allow
-                Action:
-                  - ecs:DescribeServices
-                  - ecs:UpdateService
-                  - ecs:DescribeTasks
-                  - ecs:DescribeTaskDefinition
-                  - ecs:RegisterTaskDefinition
-                  - ecs:ListClusters
-                  - ecs:ListServices
-                  - ecs:DescribeClusters
-                Resource:
-                  - !Sub arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:cluster/*
-                  - !Sub arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:service/${ECSCluster}/*
-                  - !Sub arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:cluster/${ECSCluster}/*
-                  - !Sub arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/${ECSTaskDefinition}/*
-              - Effect: Allow
-                Action:
-                  - iam:PassRole
-                Resource: 
-                  - !GetAtt ECSExecutionRole.Arn
-                  - !GetAtt ECSTaskRole.Arn
-
-  # ==================== CodePipeline Resources ====================
-  CodePipelineArtifactBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Sub ${EnvironmentName}-codepipeline-artifacts-${AWS::AccountId}
-      VersioningConfiguration:
-        Status: Enabled
-      LifecycleConfiguration:
-        Rules:
-          - Id: CleanupExpiredArtifacts
-            Status: Enabled
-            ExpirationInDays: 30
-      Tags:
-        - Key: Name
-          Value: !Sub ${EnvironmentName}-codepipeline-bucket
-
-  CodePipelineRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: codepipeline.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: CodePipelineAccess
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Effect: Allow
-                Action:
-                  - s3:GetObject
-                  - s3:GetObjectVersion
-                  - s3:GetBucketVersioning
-                  - s3:PutObject
-                  - s3:PutObjectAcl
-                Resource:
-                  - !GetAtt CodePipelineArtifactBucket.Arn
-                  - !Sub ${CodePipelineArtifactBucket.Arn}/*
-              - Effect: Allow
-                Action:
-                  - ecr:GetAuthorizationToken
-                  - ecr:GetDownloadUrlForLayer
-                  - ecr:BatchGetImage
-                  - ecr:DescribeImages
-                  - ecr:DescribeRepositories
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - codedeploy:GetApplication
-                  - codedeploy:GetApplicationRevision
-                  - codedeploy:GetDeploymentGroup
-                  - codedeploy:GetDeployment
-                  - codedeploy:CreateDeployment
-                  - codedeploy:RegisterApplicationRevision
-                  - codedeploy:GetDeploymentConfig
-                  - codedeploy:ListDeployments
-                  - codedeploy:StopDeployment
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - ecs:DescribeServices
-                  - ecs:UpdateService
-                  - ecs:DescribeTaskDefinition
-                  - ecs:RegisterTaskDefinition
-                  - ecs:DescribeClusters
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - iam:PassRole
-                Resource: 
-                  - !GetAtt ECSExecutionRole.Arn
-                  - !GetAtt ECSTaskRole.Arn
-                  - !GetAtt CodeDeployRole.Arn
-
-  CodeBuildRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: codebuild.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: CodeBuildAccess
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Effect: Allow
-                Action:
-                  - ecr:GetAuthorizationToken
-                  - ecr:BatchCheckLayerAvailability
-                  - ecr:GetDownloadUrlForLayer
-                  - ecr:GetRepositoryPolicy
-                  - ecr:DescribeRepositories
-                  - ecr:ListImages
-                  - ecr:DescribeImages
-                  - ecr:BatchGetImage
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - ecs:DescribeServices
-                  - ecs:DescribeTaskDefinition
-                  - ecs:RegisterTaskDefinition
-                  - ecs:UpdateService
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - iam:PassRole
-                Resource: 
-                  - !GetAtt ECSTaskRole.Arn
-                  - !GetAtt ECSExecutionRole.Arn
-              - Effect: Allow
-                Action:
-                  - logs:CreateLogGroup
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                Resource: "*"
-
-  CodeBuildProject:
-    Type: AWS::CodeBuild::Project
-    Properties:
-      Name: !Sub ${EnvironmentName}-codebuild
-      ServiceRole: !GetAtt CodeBuildRole.Arn
-      Artifacts:
-        Type: CODEPIPELINE
-      Environment:
-        Type: LINUX_CONTAINER
-        ComputeType: BUILD_GENERAL1_MEDIUM
-        Image: aws/codebuild/amazonlinux2-x86_64-standard:4.0
-        PrivilegedMode: true
-        EnvironmentVariables:
-          - Name: ECR_REPOSITORY_URI
-            Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepository}
-          - Name: ECS_SERVICE
-            Value: !Ref ECSService
-          - Name: ECS_CLUSTER
-            Value: !Ref ECSCluster
-          - Name: CONTAINER_NAME
-            Value: !Sub ${EnvironmentName}-container
-          - Name: AWS_DEFAULT_REGION
-            Value: !Ref AWS::Region
-          - Name: AWS_ACCOUNT_ID
-            Value: !Ref AWS::AccountId
-      Source:
-        Type: CODEPIPELINE
-        BuildSpec: |
-          version: 0.2
-          phases:
-            pre_build:
-              commands:
-                - echo "Logging in to Amazon ECR..."
-                - aws --version
-                - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_REPOSITORY_URI
-                - REPOSITORY_URI=$ECR_REPOSITORY_URI
-                - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
-                - IMAGE_TAG=${COMMIT_HASH:=latest}
-            build:
-              commands:
-                - echo "Build started on `date`"
-                - echo "Building the Docker image..."
-                - docker build -t $REPOSITORY_URI:latest .
-                - docker tag $REPOSITORY_URI:latest $REPOSITORY_URI:$IMAGE_TAG
-            post_build:
-              commands:
-                - echo "Build completed on `date`"
-                - echo "Pushing the Docker images..."
-                - docker push $REPOSITORY_URI:latest
-                - docker push $REPOSITORY_URI:$IMAGE_TAG
-                - echo "Writing image definitions file..."
-                - printf '[{"name":"%s","imageUri":"%s"}]' $CONTAINER_NAME $REPOSITORY_URI:$IMAGE_TAG > imagedefinitions.json
-                - cat imagedefinitions.json
-          artifacts:
-            files: imagedefinitions.json
 
   CodeDeployApplication:
     Type: AWS::CodeDeploy::Application
@@ -1097,78 +761,13 @@ Resources:
       ApplicationName: !Sub ${EnvironmentName}-app
       ComputePlatform: ECS
 
-  CodeDeployRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: codedeploy.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS
-      Policies:
-        - PolicyName: CodeDeployAdditionalPolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - ecs:DescribeServices
-                  - ecs:UpdateService
-                  - ecs:RegisterTaskDefinition
-                  - ecs:DescribeTaskDefinition
-                  - ecs:DescribeTasks
-                  - ecs:ListTasks
-                  - ecs:DescribeContainerInstances
-                  - ecs:CreateService
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - elasticloadbalancing:DescribeTargetGroups
-                  - elasticloadbalancing:DescribeListeners
-                  - elasticloadbalancing:ModifyListener
-                  - elasticloadbalancing:DescribeRules
-                  - elasticloadbalancing:ModifyRule
-                  - elasticloadbalancing:DescribeLoadBalancers
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - s3:GetObject
-                Resource: !Sub arn:aws:s3:::${CodePipelineArtifactBucket}/*
-              - Effect: Allow
-                Action:
-                  - iam:PassRole
-                Resource:
-                  - !GetAtt ECSExecutionRole.Arn
-                  - !GetAtt ECSTaskRole.Arn
-              - Effect: Allow
-                Action:
-                  - logs:CreateLogGroup
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                  - logs:DescribeLogGroups
-                  - logs:DescribeLogStreams
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - events:PutEvents
-                  - cloudwatch:PutMetricData
-                  - cloudwatch:GetMetricStatistics
-                  - cloudwatch:ListMetrics
-                Resource: "*"
-
   DeploymentGroup:
     Type: AWS::CodeDeploy::DeploymentGroup
-    DependsOn:
-      - ECSService
-      - ALBListener
+    DependsOn: ECSService
     Properties:
       ApplicationName: !Ref CodeDeployApplication
       ServiceRoleArn: !GetAtt CodeDeployRole.Arn
-      DeploymentGroupName: !Sub ${EnvironmentName}-deployment-group
+      DeploymentGroupName: !Sub ${EnvironmentName}-dg
       DeploymentConfigName: CodeDeployDefault.ECSAllAtOnce
       DeploymentStyle:
         DeploymentType: BLUE_GREEN
@@ -1177,25 +776,20 @@ Resources:
         Enabled: true
         Events:
           - DEPLOYMENT_FAILURE
-          - DEPLOYMENT_STOP_ON_ALARM
       BlueGreenDeploymentConfiguration:
         DeploymentReadyOption:
           ActionOnTimeout: CONTINUE_DEPLOYMENT
-          WaitTimeInMinutes: 5
         TerminateBlueInstancesOnDeploymentSuccess:
           Action: TERMINATE
           TerminationWaitTimeInMinutes: 5
-      DeploymentStyle:
-        DeploymentType: BLUE_GREEN
-        DeploymentOption: WITH_TRAFFIC_CONTROL
       ECSServices:
         - ClusterName: !Ref ECSCluster
-          ServiceName: !Ref ECSService
+          ServiceName: !GetAtt ECSService.Name
       LoadBalancerInfo:
         TargetGroupPairInfoList:
           - TargetGroups:
-              - Name: !Ref ALBTargetGroup
-              - Name: !Ref ALBTargetGroupGreen
+              - Name: !GetAtt ALBTargetGroup.TargetGroupName
+              - Name: !GetAtt ALBTargetGroupGreen.TargetGroupName
             ProdTrafficRoute:
               ListenerArns:
                 - !Ref ALBListener
@@ -1211,26 +805,26 @@ Resources:
       Stages:
         - Name: Source
           Actions:
-            - Name: ECR-Source
+            - Name: S3Source
               ActionTypeId:
                 Category: Source
                 Owner: AWS
                 Version: 1
-                Provider: ECR
+                Provider: S3
               Configuration:
-                RepositoryName: !Ref ECRRepository
-                ImageTag: latest
+                S3Bucket: !Ref CodePipelineArtifactBucket
+                S3ObjectKey: deployment-artifacts.zip
+                PollForSourceChanges: false
               OutputArtifacts:
                 - Name: SourceOutput
-              RunOrder: 1
         - Name: Deploy
           Actions:
-            - Name: CodeDeploy
+            - Name: Deploy
               ActionTypeId:
                 Category: Deploy
                 Owner: AWS
                 Version: 1
-                Provider: CodeDeploy
+                Provider: CodeDeployToECS
               Configuration:
                 ApplicationName: !Ref CodeDeployApplication
                 DeploymentGroupName: !Ref DeploymentGroup
@@ -1240,133 +834,52 @@ Resources:
                 AppSpecTemplatePath: appspec.yaml
               InputArtifacts:
                 - Name: SourceOutput
-              OutputArtifacts:
-                - Name: DeployOutput
-              RunOrder: 1
 
-
-        # - Name: Build
-        #   Actions:
-        #     - Name: CodeBuild
-        #       ActionTypeId:
-        #         Category: Build
-        #         Owner: AWS
-        #         Version: 1
-        #         Provider: CodeBuild
-        #       Configuration:
-        #         ProjectName: !Ref CodeBuildProject
-        #       InputArtifacts:
-        #         - Name: SourceOutput
-        #       OutputArtifacts:
-        #         - Name: BuildOutput
-        #       RunOrder: 1
-  # ==================== EventBridge Rule for ECR Push ====================
-  EventBridgeRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: events.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: EventBridgeCodePipelineAccess
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Effect: Allow
-                Action:
-                  - codepipeline:StartPipelineExecution
-                Resource: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${CodePipeline}
-
-  ECRImagePushRule:
+  S3TriggerRule:
     Type: AWS::Events::Rule
     Properties:
-      Description: Trigger CodePipeline when new image is pushed to ECR
       EventPattern:
         source:
-          - aws.ecr
+          - aws.s3
         detail-type:
-          - ECR Image Action
+          - Object Created
         detail:
-          action-type:
-            - PUSH
-          result:
-            - SUCCESS
-          repository-name:
-            - !Ref ECRRepository
-          image-tag:
-            - latest
+          bucket:
+            name:
+              - !Ref CodePipelineArtifactBucket
+          object:
+            key:
+              - deployment-artifacts.zip
+      State: ENABLED
       Targets:
         - Arn: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${CodePipeline}
-          Id: CodePipelineTarget
+          Id: Pipeline
           RoleArn: !GetAtt EventBridgeRole.Arn
 
 Outputs:
   VPCId:
-    Description: VPC ID
     Value: !Ref VPC
-    Export:
-      Name: !Sub ${EnvironmentName}-VPCId
-
   ALBEndpoint:
-    Description: Application Load Balancer Endpoint
     Value: !GetAtt ApplicationLoadBalancer.DNSName
-    Export:
-      Name: !Sub ${EnvironmentName}-ALBEndpoint
-
+  ApplicationURL:
+    Value: !Sub http://${ApplicationLoadBalancer.DNSName}
   S3BucketName:
-    Description: S3 Bucket Name for Photos
     Value: !Ref S3Bucket
-    Export:
-      Name: !Sub ${EnvironmentName}-S3BucketName
-
   RDSEndpoint:
-    Description: RDS Endpoint
     Value: !GetAtt RDSInstance.Endpoint.Address
-    Export:
-      Name: !Sub ${EnvironmentName}-RDSEndpoint
-
+  RDSPort:
+    Value: !GetAtt RDSInstance.Endpoint.Port
   ECRRepositoryUri:
-    Description: ECR Repository URI
     Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepository}
-    Export:
-      Name: !Sub ${EnvironmentName}-ECRRepositoryUri
-
   ECSClusterName:
-    Description: ECS Cluster Name
     Value: !Ref ECSCluster
-    Export:
-      Name: !Sub ${EnvironmentName}-ECSClusterName
-
+  ECSServiceName:
+    Value: !GetAtt ECSService.Name
   RDSSecretArn:
-    Description: RDS Secrets Manager ARN
     Value: !Ref RDSSecret
-    Export:
-      Name: !Sub ${EnvironmentName}-RDSSecretArn
-
   CodePipelineURL:
-    Description: CodePipeline Console URL
-    Value: !Sub https://${AWS::Region}.console.aws.amazon.com/codesuite/codepipeline/pipelines/${CodePipeline}/view?region=${AWS::Region}
-    Export:
-      Name: !Sub ${EnvironmentName}-CodePipelineURL
-
-  EventBridgeRuleName:
-    Description: EventBridge Rule Name for ECR triggers
-    Value: !Ref ECRImagePushRule
-    Export:
-      Name: !Sub ${EnvironmentName}-EventBridgeRuleName
-
-  CodeDeployApplicationName:
-    Description: CodeDeploy Application Name
-    Value: !Ref CodeDeployApplication
-    Export:
-      Name: !Sub ${EnvironmentName}-CodeDeployApplicationName
-
+    Value: !Sub https://${AWS::Region}.console.aws.amazon.com/codesuite/codepipeline/pipelines/${CodePipeline}/view
   GitHubActionsRoleArn:
-    Description: GitHub Actions IAM Role ARN
     Value: !GetAtt GitHubActionsRole.Arn
-    Export:
-      Name: !Sub ${EnvironmentName}-GitHubActionsRoleArn
+  CodePipelineArtifactBucket:
+    Value: !Ref CodePipelineArtifactBucket

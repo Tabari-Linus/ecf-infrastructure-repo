@@ -1,4 +1,3 @@
-# infrastructure-template.yaml
 AWSTemplateFormatVersion: '2010-09-09'
 Description: 'Photo Uploader Lab - Complete Infrastructure Stack with Secrets Manager'
 
@@ -39,6 +38,13 @@ Parameters:
       - 512
       - 1024
       - 2048
+
+  ContainerPort:
+    Type: Number
+    Default: 8080
+    Description: 'Container port for the application'
+    MinValue: 1
+    MaxValue: 65535
   
   ServiceDesiredCount:
     Type: Number
@@ -171,6 +177,26 @@ Resources:
         - Key: Name
           Value: !Sub ${EnvironmentName}-private-subnet-2
 
+  DatabaseSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !FindInMap [NetworkConfig, Subnets, Database1]
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-db-subnet-1
+
+  DatabaseSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: !FindInMap [NetworkConfig, Subnets, Database2]
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-db-subnet-2
+
   # ==================== Route Tables ====================
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
@@ -266,13 +292,15 @@ Resources:
         - IpProtocol: tcp
           FromPort: 443
           ToPort: 443
-          CidrIp: 10.0.0.0/16
+          sourceSecurityGroupId: !Ref ECSSecurityGroup
+
 
   S3GatewayEndpoint:
     Type: AWS::EC2::VPCEndpoint
     Properties:
       VpcId: !Ref VPC
       ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      VpcEndpointType: Gateway
       RouteTableIds:
         - !Ref PrivateRouteTable1
         - !Ref PrivateRouteTable2
@@ -286,6 +314,10 @@ Resources:
               - s3:PutObject
               - s3:DeleteObject
             Resource: !Sub ${S3Bucket.Arn}/*
+      PrivateDnsEnabled: true
+      SecurityGroupIds:
+        - !Ref VPCEndpointSecurityGroup
+
 
   ECRDkrEndpoint:
     Type: AWS::EC2::VPCEndpoint
@@ -350,11 +382,6 @@ Resources:
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
-      SecurityGroupEgress:
-        - IpProtocol: tcp
-          FromPort: 8080
-          ToPort: 8080
-          CidrIp: 10.0.0.0/16
 
   ECSSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -363,8 +390,8 @@ Resources:
       VpcId: !Ref VPC
       SecurityGroupIngress:
         - IpProtocol: tcp
-          FromPort: 8080
-          ToPort: 8080
+          FromPort: !Ref ContainerPort
+          ToPort: !Ref ContainerPort
           SourceSecurityGroupId: !Ref ALBSecurityGroup
       SecurityGroupEgress:
         - IpProtocol: -1
@@ -375,6 +402,7 @@ Resources:
   RDSSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
+      GroupName: !Sub ${EnvironmentName}-rds-sg
       GroupDescription: Security group for RDS
       VpcId: !Ref VPC
       SecurityGroupIngress:
@@ -424,10 +452,11 @@ Resources:
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
+      DBSubnetGroupName: !Sub ${EnvironmentName}-db-subnet-group
       DBSubnetGroupDescription: Subnet group for RDS instance
       SubnetIds:
-        - !Ref PrivateSubnet1
-        - !Ref PrivateSubnet2
+        - !Ref DatabaseSubnet1
+        - !Ref DatabaseSubnet2
       Tags:
         - Key: Name
           Value: !Sub ${EnvironmentName}-db-subnet-group
@@ -439,7 +468,7 @@ Resources:
       DBInstanceIdentifier: !Sub ${EnvironmentName}-postgres
       DBName: !Ref DatabaseName
       Engine: postgres
-      EngineVersion: '15.7'
+      EngineVersion: '17.4'
       DBInstanceClass: !Ref DatabaseInstanceClass
       MasterUsername: !Sub '{{resolve:secretsmanager:${RDSSecret}:SecretString:username}}'
       MasterUserPassword: !Sub '{{resolve:secretsmanager:${RDSSecret}:SecretString:password}}'
@@ -453,7 +482,9 @@ Resources:
       VPCSecurityGroups:
         - !GetAtt RDSSecurityGroup.GroupId
       BackupRetentionPeriod: 7
-      DeletionProtection: false
+      PreferredBackupWindow: '03:00-04:00'
+      PreferredMaintenanceWindow: 'sun:04:00-sun:04:30'
+      MultiAZ: true
       EnablePerformanceInsights: true
       PerformanceInsightsRetentionPeriod: 7
       Tags:
@@ -473,22 +504,8 @@ Resources:
       LifecyclePolicy:
         LifecyclePolicyText: |
           {
-            "rules": [
-              {
+            "rules": [{
                 "rulePriority": 1,
-                "description": "Delete untagged images older than 1 day",
-                "selection": {
-                  "tagStatus": "untagged",
-                  "countType": "sinceImagePushed",
-                  "countUnit": "days",
-                  "countNumber": 1
-                },
-                "action": {
-                  "type": "expire"
-                }
-              },
-              {
-                "rulePriority": 2,
                 "description": "Keep last 10 images",
                 "selection": {
                   "tagStatus": "any",
@@ -606,7 +623,6 @@ Resources:
         ExecuteCommandConfiguration:
           Logging: DEFAULT
 
-  # ==================== CloudWatch Logs ====================
   CloudWatchLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -624,6 +640,7 @@ Resources:
         - !Ref PublicSubnet2
       SecurityGroups:
         - !Ref ALBSecurityGroup
+      Type: application
       Tags:
         - Key: Name
           Value: !Sub ${EnvironmentName}-alb
@@ -632,20 +649,39 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       Name: !Sub ${EnvironmentName}-tg
-      Port: 8080
+      Port: !Ref ContainerPort
       Protocol: HTTP
       VpcId: !Ref VPC
       TargetType: ip
-      HealthCheckPath: /
+      HealthCheckPath: /health
       HealthCheckIntervalSeconds: 30
       HealthCheckTimeoutSeconds: 5
       HealthyThresholdCount: 2
-      UnhealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      HealthCheckEnabled: true
       Matcher:
         HttpCode: 200
       Tags:
         - Key: Name
           Value: !Sub ${EnvironmentName}-target-group
+
+  ALBTargetGroupGreen:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${EnvironmentName}-tg-green
+      Port: !Ref ContainerPort
+      Protocol: HTTP
+      VpcId: !Ref VPC
+      TargetType: ip
+      HealthCheckPath: /health
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      HealthCheckEnabled: true
+      Matcher:
+        HttpCode: 200
+
 
   ALBListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
@@ -660,6 +696,7 @@ Resources:
   # ==================== ECS Task Definition ====================
   ECSTaskDefinition:
     Type: AWS::ECS::TaskDefinition
+    DependsOn: CloudWatchLogGroup
     Properties:
       Family: !Sub ${EnvironmentName}-task
       NetworkMode: awsvpc
@@ -674,7 +711,7 @@ Resources:
           Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepository}:latest
           Essential: true
           PortMappings:
-            - ContainerPort: 8080
+            - ContainerPort: !Ref ContainerPort
               Protocol: tcp
           Environment:
             - Name: SPRING_PROFILES_ACTIVE
@@ -689,9 +726,9 @@ Resources:
               Value: !Ref AWS::Region
           Secrets:
             - Name: DB_USERNAME
-              ValueFrom: !Sub "${RDSSecret}:username::"
+              ValueFrom: !Sub "${RDSSecret}:SecretString:username"
             - Name: DB_PASSWORD
-              ValueFrom: !Sub "${RDSSecret}:password::"
+              ValueFrom: !Sub "${RDSSecret}:SecretString:password"
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -701,7 +738,7 @@ Resources:
           HealthCheck:
             Command:
               - CMD-SHELL
-              - curl -f http://localhost:8080/ || exit 1
+              - curl -f http://localhost:8080/health || exit 1
             Interval: 30
             Timeout: 5
             Retries: 3
@@ -732,9 +769,77 @@ Resources:
             - !Ref ECSSecurityGroup
       LoadBalancers:
         - ContainerName: !Sub ${EnvironmentName}-container
-          ContainerPort: 8080
+          ContainerPort: !Ref ContainerPort
           TargetGroupArn: !Ref ALBTargetGroup
       HealthCheckGracePeriodSeconds: 60
+      DeploymentController:
+        Type: CODE_DEPLOY
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-service
+
+  AutoScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: appplication-autoscaling.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ECSServiceScalingPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - application-autoscaling:*
+                  - cloudwatch:DescribeAlarms
+                  - cloudwatch:PutMetricAlarm
+                  - cloudwatch:GetMetricStatistics
+                  - cloudwatch:SetAlarmState
+                  - cloudwatch:DeleteAlarms
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ecs:DescribeServices
+                  - ecs:UpdateService
+                  - ecs:DescribeTaskDefinition
+                  - ecs:DescribeTasks
+                  - ecs:ListTasks
+                  - iam:PassRole
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - application-autoscaling:*
+                Resource: "*"
+
+  ECSServiceScalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    DependsOn: ECSService
+    Properties:
+      MaxCapacity: 10
+      MinCapacity: 2
+      ResourceId: !GetAtt ECSService.ServiceArn
+      RoleArn: !GettAtt AutoScalingRole.Arn
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  ECSServiceScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    DependsOn: ECSServiceScalingTarget
+    Properties:
+      PolicyName: !Sub ${EnvironmentName}-scaling-policy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ECSServiceScalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 70.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
 
   # ==================== OIDC Provider for GitHub Actions ====================
   GitHubOIDCProvider:
@@ -795,7 +900,11 @@ Resources:
                   - ecs:ListClusters
                   - ecs:ListServices
                   - ecs:DescribeClusters
-                Resource: "*"
+                Resource:
+                  - !Sub arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:cluster/*
+                  - !Sub arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:service/${ECSCluster}/*
+                  - !Sub arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:cluster/${ECSCluster}/*
+                  - !Sub arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/${ECSTaskDefinition}/*
               - Effect: Allow
                 Action:
                   - iam:PassRole
@@ -846,16 +955,39 @@ Resources:
                   - !Sub ${CodePipelineArtifactBucket.Arn}/*
               - Effect: Allow
                 Action:
-                  - codebuild:BatchGetBuilds
-                  - codebuild:StartBuild
-                  - ecs:DescribeServices
-                  - ecs:DescribeTaskDefinition
-                  - ecs:DescribeTasks
-                  - ecs:ListTasks
-                  - ecs:RegisterTaskDefinition
-                  - ecs:UpdateService
-                  - iam:PassRole
+                  - ecr:GetAuthorizationToken
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                  - ecr:DescribeImages
+                  - ecr:DescribeRepositories
                 Resource: "*"
+              - Effect: Allow
+                Action:
+                  - codedeploy:GetApplication
+                  - codedeploy:GetApplicationRevision
+                  - codedeploy:GetDeploymentGroup
+                  - codedeploy:GetDeployment
+                  - codedeploy:CreateDeployment
+                  - codedeploy:RegisterApplicationRevision
+                  - codedeploy:GetDeploymentConfig
+                  - codedeploy:ListDeployments
+                  - codedeploy:StopDeployment
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ecs:DescribeServices
+                  - ecs:UpdateService
+                  - ecs:DescribeTaskDefinition
+                  - ecs:RegisterTaskDefinition
+                  - ecs:DescribeClusters
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource: 
+                  - !GetAtt ECSExecutionRole.Arn
+                  - !GetAtt ECSTaskRole.Arn
+                  - !GetAtt CodeDeployRole.Arn
 
   CodeBuildRole:
     Type: AWS::IAM::Role
@@ -977,20 +1109,75 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS
+      Policies:
+        - PolicyName: CodeDeployAdditionalPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecs:DescribeServices
+                  - ecs:UpdateService
+                  - ecs:RegisterTaskDefinition
+                  - ecs:DescribeTaskDefinition
+                  - ecs:DescribeTasks
+                  - ecs:ListTasks
+                  - ecs:DescribeContainerInstances
+                  - ecs:CreateService
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - elasticloadbalancing:DescribeTargetGroups
+                  - elasticloadbalancing:DescribeListeners
+                  - elasticloadbalancing:ModifyListener
+                  - elasticloadbalancing:DescribeRules
+                  - elasticloadbalancing:ModifyRule
+                  - elasticloadbalancing:DescribeLoadBalancers
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub arn:aws:s3:::${CodePipelineArtifactBucket}/*
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource:
+                  - !GetAtt ECSExecutionRole.Arn
+                  - !GetAtt ECSTaskRole.Arn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - events:PutEvents
+                  - cloudwatch:PutMetricData
+                  - cloudwatch:GetMetricStatistics
+                  - cloudwatch:ListMetrics
+                Resource: "*"
 
   DeploymentGroup:
     Type: AWS::CodeDeploy::DeploymentGroup
+    DependsOn:
+      - ECSService
+      - ALBListener
     Properties:
       ApplicationName: !Ref CodeDeployApplication
       ServiceRoleArn: !GetAtt CodeDeployRole.Arn
       DeploymentGroupName: !Sub ${EnvironmentName}-deployment-group
       DeploymentConfigName: CodeDeployDefault.ECSAllAtOnce
+      DeploymentStyle:
+        DeploymentType: BLUE_GREEN
+        DeploymentOption: WITH_TRAFFIC_CONTROL
       AutoRollbackConfiguration:
         Enabled: true
         Events:
           - DEPLOYMENT_FAILURE
           - DEPLOYMENT_STOP_ON_ALARM
-          - DEPLOYMENT_STOP_ON_REQUEST
       BlueGreenDeploymentConfiguration:
         DeploymentReadyOption:
           ActionOnTimeout: CONTINUE_DEPLOYMENT
@@ -1002,12 +1189,13 @@ Resources:
         DeploymentType: BLUE_GREEN
         DeploymentOption: WITH_TRAFFIC_CONTROL
       ECSServices:
-        - ServiceName: !GetAtt ECSService.Name
-          ClusterName: !Ref ECSCluster
+        - ClusterName: !Ref ECSCluster
+          ServiceName: !Ref ECSService
       LoadBalancerInfo:
         TargetGroupPairInfoList:
           - TargetGroups:
               - Name: !Ref ALBTargetGroup
+              - Name: !Ref ALBTargetGroupGreen
             ProdTrafficRoute:
               ListenerArns:
                 - !Ref ALBListener
@@ -1035,21 +1223,6 @@ Resources:
               OutputArtifacts:
                 - Name: SourceOutput
               RunOrder: 1
-        - Name: Build
-          Actions:
-            - Name: CodeBuild
-              ActionTypeId:
-                Category: Build
-                Owner: AWS
-                Version: 1
-                Provider: CodeBuild
-              Configuration:
-                ProjectName: !Ref CodeBuildProject
-              InputArtifacts:
-                - Name: SourceOutput
-              OutputArtifacts:
-                - Name: BuildOutput
-              RunOrder: 1
         - Name: Deploy
           Actions:
             - Name: CodeDeploy
@@ -1061,10 +1234,32 @@ Resources:
               Configuration:
                 ApplicationName: !Ref CodeDeployApplication
                 DeploymentGroupName: !Ref DeploymentGroup
+                TaskDefinitionTemplateArtifact: SourceOutput
+                TaskDefinitionTemplatePath: taskdef.json
+                AppSpecTemplateArtifact: SourceOutput
+                AppSpecTemplatePath: appspec.yaml
               InputArtifacts:
-                - Name: BuildOutput
+                - Name: SourceOutput
+              OutputArtifacts:
+                - Name: DeployOutput
               RunOrder: 1
 
+
+        # - Name: Build
+        #   Actions:
+        #     - Name: CodeBuild
+        #       ActionTypeId:
+        #         Category: Build
+        #         Owner: AWS
+        #         Version: 1
+        #         Provider: CodeBuild
+        #       Configuration:
+        #         ProjectName: !Ref CodeBuildProject
+        #       InputArtifacts:
+        #         - Name: SourceOutput
+        #       OutputArtifacts:
+        #         - Name: BuildOutput
+        #       RunOrder: 1
   # ==================== EventBridge Rule for ECR Push ====================
   EventBridgeRole:
     Type: AWS::IAM::Role
